@@ -102,6 +102,13 @@ export async function apply(ctx: ClientContext, config?: MarketConfig): Promise<
     () => disposeGithubRemote,
     'ui-plugin-market: GitHub Remote contribution',
   )
+  await ctx.inject(['remote.pluginMarketGithub'], (scope: ClientContext) => {
+    mountMarketplace(scope, config)
+  })
+}
+
+/** Mount marketplace consumers after the package-owned GitHub Remote namespace is active. */
+function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
   const { api: connectionApi } = ctx.get('connection') as ConnectionHandle
   const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-plugin-market: dictionaries')
