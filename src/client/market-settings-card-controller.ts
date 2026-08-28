@@ -1,0 +1,337 @@
+/** Staged plugin-configuration card over the marketplace settings namespace. */
+
+import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import {
+  DEFAULT_MARKET_PROVIDER, type MarketProviderId, type MarketSettings,
+} from '../market-settings.ts'
+
+/** One typed field as the marketplace card renders it. */
+export interface MarketSettingsFieldState<T> {
+  /** Effective value, including a staged edit. */
+  value: T
+  /** Whether saving leaves a user-layer override for this field. */
+  overridden: boolean
+}
+
+/** Marketplace plugin-card projection. */
+export interface MarketSettingsCardState {
+  /** Whether the Host serves the marketplace namespace. */
+  available: boolean
+  /** Whether the settings document accepts writes. */
+  writable: boolean
+  /** Whether saving would write at least one change. */
+  dirty: boolean
+  /** Whether a save is crossing the Host boundary. */
+  saving: boolean
+  /** Whether the last save did not land as staged. */
+  failed: boolean
+  /** Selected catalog provider. */
+  provider: MarketSettingsFieldState<MarketProviderId>
+  /** Startup synchronization preference. */
+  syncOnStartup: MarketSettingsFieldState<boolean>
+  /** Write-only GitHub credential staged outside the settings document. */
+  githubToken: {
+    value: string
+    configured: boolean
+    writable: boolean
+    suffix?: string
+    testStatus: 'idle' | 'testing' | 'success' | 'error'
+    testDetail?: string
+  }
+}
+
+/** Registration-private face for the marketplace plugin card. */
+export interface MarketSettingsCardInjected {
+  hooks: {
+    /** Card snapshot bound by the renderer as useMarketSettingsCard. */
+    marketSettingsCard: SnapshotStore<MarketSettingsCardState>
+  }
+  /** Stage a provider choice. */
+  selectProvider(provider: MarketProviderId): void
+  /** Stage the startup synchronization preference. */
+  setSyncOnStartup(enabled: boolean): void
+  /** Stage a replacement GitHub token. */
+  setGithubToken(value: string): void
+  /** Test the staged token, or the stored token while the field is blank. */
+  testGithubToken(): void
+  /** Stage one field's return to its composition/default value. */
+  resetField(field: keyof MarketSettings): void
+  /** Persist every staged edit. */
+  save(): void
+  /** Drop every staged edit. */
+  discard(): void
+}
+
+type Draft<T> = { kind: 'set'; value: T } | { kind: 'clear' }
+type MarketCredentialApi = Pick<IApiClient['credentials'], 'describe' | 'set'>
+type MarketCredentialProbe = (token?: string) => Promise<{ login: string }>
+
+/** Owns the marketplace card's drafts and revision-fenced settings writes. */
+export class MarketSettingsCardController {
+  private readonly store: SnapshotStore<MarketSettingsCardState>
+  private readonly unsubscribe: () => void
+  private providerDraft: Draft<MarketProviderId> | undefined
+  private syncDraft: Draft<boolean> | undefined
+  private saving = false
+  private failed = false
+  private githubTokenDraft = ''
+  private githubTokenConfigured = false
+  private githubTokenWritable = true
+  private githubTokenSuffix: string | undefined
+  private githubTokenTest: { status: 'idle' | 'testing' | 'success' | 'error'; detail?: string } = { status: 'idle' }
+
+  /** @param scope - Host-backed `ui-plugin-market` settings scope. */
+  constructor(
+    private readonly scope: SettingsScope<MarketSettings>,
+    private readonly api: { credentials: MarketCredentialApi },
+    private readonly probeCredential: MarketCredentialProbe,
+  ) {
+    this.store = createSnapshotStore(this.projection())
+    this.unsubscribe = scope.subscribe(() => { this.publish() })
+    void this.readGithubToken()
+  }
+
+  /** Stop following the settings scope. */
+  dispose(): void {
+    this.unsubscribe()
+  }
+
+  /**
+   * Project the controller into the card registration face.
+   * @returns the snapshot and actions injected into the card registration.
+   */
+  inject(): MarketSettingsCardInjected {
+    return {
+      hooks: { marketSettingsCard: this.store },
+      selectProvider: (provider) => { this.stageProvider({ kind: 'set', value: provider }) },
+      setSyncOnStartup: (enabled) => { this.stageSync({ kind: 'set', value: enabled }) },
+      setGithubToken: (value) => {
+        this.githubTokenDraft = value
+        this.githubTokenTest = { status: 'idle' }
+        this.failed = false
+        this.publish()
+      },
+      testGithubToken: () => { void this.testGithubToken() },
+      resetField: (field) => {
+        if (field === 'provider') this.stageProvider({ kind: 'clear' })
+        else this.stageSync({ kind: 'clear' })
+      },
+      save: () => { void this.save() },
+      discard: () => { this.discard() },
+    }
+  }
+
+  private stageProvider(draft: Draft<MarketProviderId>): void {
+    this.providerDraft = draft
+    this.failed = false
+    this.publish()
+  }
+
+  private stageSync(draft: Draft<boolean>): void {
+    this.syncDraft = draft
+    this.failed = false
+    this.publish()
+  }
+
+  private discard(): void {
+    if (this.providerDraft === undefined && this.syncDraft === undefined
+      && this.githubTokenDraft.length === 0 && !this.failed) return
+    this.providerDraft = undefined
+    this.syncDraft = undefined
+    this.githubTokenDraft = ''
+    this.failed = false
+    this.publish()
+  }
+
+  private async save(): Promise<void> {
+    const plan = this.plan()
+    const token = this.githubTokenDraft.trim()
+    if ((plan.length === 0 && token.length === 0) || this.saving) return
+    this.saving = true
+    this.failed = false
+    this.publish()
+    let landed = true
+    if (token.length > 0) {
+      try {
+        const response = await this.api.credentials.set({ ref: 'GITHUB_TOKEN', value: token })
+        landed = response.result.ok
+      } catch (_credentialWriteFailure) {
+        landed = false
+      }
+      await this.readGithubToken()
+      landed = this.githubTokenConfigured && landed
+    }
+    for (const write of plan) {
+      try {
+        if (write.draft.kind === 'clear') {
+          await this.scope.unset(write.field)
+          landed = !this.stored(write.field) && landed
+        } else {
+          await this.scope.set(write.field, write.draft.value)
+          landed = this.userLayer()?.[write.field] === write.draft.value && landed
+        }
+      } catch (_settingsWriteFailure) {
+        landed = false
+      }
+    }
+    if (landed) {
+      this.providerDraft = undefined
+      this.syncDraft = undefined
+      this.githubTokenDraft = ''
+    }
+    this.saving = false
+    this.failed = !landed
+    this.publish()
+  }
+
+  private plan(): Array<
+    { field: 'provider'; draft: Draft<MarketProviderId> }
+    | { field: 'syncOnStartup'; draft: Draft<boolean> }
+  > {
+    const value = this.sectionValue()
+    const plan: Array<
+      { field: 'provider'; draft: Draft<MarketProviderId> }
+      | { field: 'syncOnStartup'; draft: Draft<boolean> }
+    > = []
+    if (this.providerDraft?.kind === 'clear') {
+      if (this.stored('provider')) plan.push({ field: 'provider', draft: this.providerDraft })
+    } else if (this.providerDraft !== undefined && this.providerDraft.value !== value.provider) {
+      plan.push({ field: 'provider', draft: this.providerDraft })
+    }
+    if (this.syncDraft?.kind === 'clear') {
+      if (this.stored('syncOnStartup')) plan.push({ field: 'syncOnStartup', draft: this.syncDraft })
+    } else if (this.syncDraft !== undefined && this.syncDraft.value !== value.syncOnStartup) {
+      plan.push({ field: 'syncOnStartup', draft: this.syncDraft })
+    }
+    return plan
+  }
+
+  private projection(): MarketSettingsCardState {
+    const snapshot = this.scope.getSnapshot()
+    const value = this.sectionValue()
+    const base = this.baseValue()
+    return {
+      available: snapshot.status === 'ready',
+      writable: snapshot.writable,
+      dirty: this.plan().length > 0 || this.githubTokenDraft.trim().length > 0,
+      saving: this.saving,
+      failed: this.failed,
+      provider: {
+        value: this.providerDraft?.kind === 'set'
+          ? this.providerDraft.value
+          : this.providerDraft?.kind === 'clear' ? base.provider : value.provider,
+        overridden: this.providerDraft?.kind === 'set'
+          ? true
+          : this.providerDraft?.kind === 'clear' ? false : this.stored('provider'),
+      },
+      syncOnStartup: {
+        value: this.syncDraft?.kind === 'set'
+          ? this.syncDraft.value
+          : this.syncDraft?.kind === 'clear' ? base.syncOnStartup : value.syncOnStartup,
+        overridden: this.syncDraft?.kind === 'set'
+          ? true
+          : this.syncDraft?.kind === 'clear' ? false : this.stored('syncOnStartup'),
+      },
+      githubToken: {
+        value: this.githubTokenDraft,
+        configured: this.githubTokenConfigured,
+        writable: this.githubTokenWritable,
+        ...this.githubTokenSuffix === undefined ? {} : { suffix: this.githubTokenSuffix },
+        testStatus: this.githubTokenTest.status,
+        ...this.githubTokenTest.detail === undefined ? {} : { testDetail: this.githubTokenTest.detail },
+      },
+    }
+  }
+
+  private sectionValue(): MarketSettings {
+    return this.scope.getSnapshot().value ?? {
+      provider: DEFAULT_MARKET_PROVIDER,
+      syncOnStartup: true,
+    }
+  }
+
+  private baseValue(): MarketSettings {
+    const base = this.scope.getSnapshot().base as Partial<MarketSettings> | undefined
+    return {
+      provider: base?.provider ?? DEFAULT_MARKET_PROVIDER,
+      syncOnStartup: base?.syncOnStartup ?? true,
+    }
+  }
+
+  private userLayer(): Partial<MarketSettings> | undefined {
+    return this.scope.getSnapshot().user as Partial<MarketSettings> | undefined
+  }
+
+  private stored(field: keyof MarketSettings): boolean {
+    const user = this.userLayer()
+    return user !== undefined && Object.hasOwn(user, field)
+  }
+
+  private publish(): void {
+    const next = this.projection()
+    const previous = this.store.getSnapshot()
+    if (previous.available === next.available
+      && previous.writable === next.writable
+      && previous.dirty === next.dirty
+      && previous.saving === next.saving
+      && previous.failed === next.failed
+      && previous.provider.value === next.provider.value
+      && previous.provider.overridden === next.provider.overridden
+      && previous.syncOnStartup.value === next.syncOnStartup.value
+      && previous.syncOnStartup.overridden === next.syncOnStartup.overridden
+      && previous.githubToken.value === next.githubToken.value
+      && previous.githubToken.configured === next.githubToken.configured
+      && previous.githubToken.writable === next.githubToken.writable
+      && previous.githubToken.suffix === next.githubToken.suffix
+      && previous.githubToken.testStatus === next.githubToken.testStatus
+      && previous.githubToken.testDetail === next.githubToken.testDetail) return
+    this.store.set(next)
+  }
+
+  /**
+   * Re-read the write-only GitHub credential after a Host invalidation.
+   * @param ref - invalidated Host credential reference.
+   */
+  refreshCredential(ref: string): void {
+    if (ref === 'GITHUB_TOKEN') void this.readGithubToken()
+  }
+
+  private async testGithubToken(): Promise<void> {
+    if (this.githubTokenTest.status === 'testing') return
+    const token = this.githubTokenDraft.trim()
+    if (token.length === 0 && !this.githubTokenConfigured) return
+    this.githubTokenTest = { status: 'testing' }
+    this.publish()
+    try {
+      const result = await this.probeCredential(token.length === 0 ? undefined : token)
+      this.githubTokenTest = { status: 'success', detail: result.login }
+    } catch (error: unknown) {
+      this.githubTokenTest = {
+        status: 'error',
+        detail: error instanceof Error ? error.message : String(error),
+      }
+    }
+    this.publish()
+  }
+
+  private async readGithubToken(): Promise<void> {
+    try {
+      const response = await this.api.credentials.describe({ refs: ['GITHUB_TOKEN'] })
+      if (!response.result.ok) return
+      const view = response.result.value.credentials.GITHUB_TOKEN
+      const configured = view?.configured ?? false
+      const writable = view?.writable ?? true
+      const suffix = view?.suffix
+      if (configured === this.githubTokenConfigured && writable === this.githubTokenWritable
+        && suffix === this.githubTokenSuffix) return
+      this.githubTokenConfigured = configured
+      this.githubTokenWritable = writable
+      this.githubTokenSuffix = suffix
+      this.publish()
+    } catch (_credentialReadFailure) {
+      // Settings remain usable; the Host authoritatively accepts or refuses the next write.
+    }
+  }
+}

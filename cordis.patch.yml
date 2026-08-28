@@ -1,0 +1,9 @@
+# The Host provider owns credentials and GitHub requests; the root row owns
+# settings plus the browser half. Both resolve from this one npm package.
+
+- insert:
+    - id: plugin-market-github
+      name: '@lovstudio/dsh-plugin-marketplace/host'
+
+    - id: ui-plugin-market
+      name: '@lovstudio/dsh-plugin-marketplace'
