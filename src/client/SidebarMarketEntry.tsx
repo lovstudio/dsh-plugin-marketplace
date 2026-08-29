@@ -55,7 +55,7 @@ export function SidebarMarketEntry({ controller, wide, t }: SidebarMarketEntryPr
       title={wide ? undefined : t('sidebarEntry')}
       onClick={() => { controller.open() }}
     >
-      <MarketplaceIcon size={wide ? 14 : 18} />
+      <MarketplaceIcon size={wide ? 16 : 18} />
       {wide ? <span className={css.label}>{t('sidebarEntry')}</span> : null}
     </button>
   )
