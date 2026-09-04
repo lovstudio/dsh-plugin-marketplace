@@ -40,6 +40,17 @@ export interface MarketInstallAction {
   command?: string
   /** Epoch milliseconds the operation started, for the elapsed-time readout. */
   startedAt?: number
+  /** True when the Host mounted the package live, so only the page needs a reload. */
+  hotMounted?: boolean
+}
+
+/** An install held back until the user accepts a harness-compatibility warning. */
+export interface MarketInstallWarning {
+  /** The `owner/repo` catalog id the install targets. */
+  fullName: string
+  /** The already-resolved package spec, reused verbatim once accepted. */
+  spec: string
+  mismatches: readonly { name: string; expected: string; actual: string }[]
 }
 
 /** Marketplace store state. */
@@ -86,6 +97,8 @@ export interface MarketViewState {
   installedOnly: boolean
   /** The latest install/uninstall operation, or null. */
   action: MarketInstallAction | null
+  /** The install awaiting the user's decision on a compatibility warning. */
+  installWarning: MarketInstallWarning | null
   /** `owner/repository` of every repository the GitHub user has starred. */
   starred: readonly string[]
   /** Repositories with a star change in flight. */
@@ -132,6 +145,7 @@ export function createMarketViewState(): MarketViewState {
     installed: [],
     installedOnly: false,
     action: null,
+    installWarning: null,
     starred: [],
     starBusy: [],
     starSupported: false,

@@ -101,6 +101,39 @@
   accent-color: var(--dsw-alias-interactive-primary);
 }
 
+.mismatchList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  max-height: 220px;
+  overflow-y: auto;
+  list-style: none;
+  border-radius: 8px;
+  background: var(--dsw-alias-fill-secondary);
+}
+
+.mismatchList li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mismatchName {
+  font-family: var(--dsw-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+.mismatchVersions {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .action {
   display: inline-flex;
   align-items: center;

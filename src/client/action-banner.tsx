@@ -47,18 +47,27 @@ export function ActionBanner({
   const errorCopy = useMarketCopyFeedback(errorCopyText(action))
   const hintCopy = useMarketCopyFeedback(t('restartManualHint'))
   const success = action.status === 'ok'
-  const manual = success && restartMode === 'manual'
+  // A hot-mounted change already took effect in the tree, so the only thing
+  // still stale is this page's client bundle.
+  const live = success && action.hotMounted === true
+  const manual = success && !live && restartMode === 'manual'
   const text = success
-    ? manual
-      ? action.kind === 'install' ? t('installSuccessManual') : t('uninstallSuccessManual')
-      : action.kind === 'install' ? t('installSuccess') : t('uninstallSuccess')
+    ? live
+      ? action.kind === 'install' ? t('installSuccessLive') : t('uninstallSuccessLive')
+      : manual
+        ? action.kind === 'install' ? t('installSuccessManual') : t('uninstallSuccessManual')
+        : action.kind === 'install' ? t('installSuccess') : t('uninstallSuccess')
     : action.message === 'not-installable'
       ? t('notInstallable')
       : action.message === 'restart-failed' ? t('restartFailed') : t('actionFailed')
   return (
     <div className={css.actionBanner} data-tone={success ? 'ok' : 'error'} role="status">
       <span className={css.actionText}>{text}</span>
-      {manual ? (
+      {live ? (
+        <button type="button" className={css.action} onClick={() => { window.location.reload() }}>
+          {t('reloadPage')}
+        </button>
+      ) : manual ? (
         <button type="button" className={css.action} onClick={hintCopy.onCopy} title={t('restartManualHint')}>
           <IconCopyOutline16 size={14} />
           {hintCopy.copied ? t('copied') : t('copyRestartHint')}

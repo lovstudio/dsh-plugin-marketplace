@@ -15,6 +15,7 @@ import { isInstalled, listAgentMarkdown } from './agent-copy.ts'
 import type { MarketCategoryFacet } from './api.ts'
 import type { MarketplaceInjected } from './contract.ts'
 import type { PluginMarketKey } from './locales.ts'
+import type { MarketInstallWarning } from './market-store.ts'
 import { MarketplaceCard } from './MarketplaceCard.tsx'
 import { MarketplaceDetail } from './MarketplaceDetail.tsx'
 import { parseMarketQuery, type ParsedFieldFilters, type ParsedMarketQuery } from './search.ts'
@@ -326,6 +327,50 @@ function RestartConfirmDialog({
   )
 }
 
+/**
+ * Warn before installing a plugin whose declared harness ranges the running
+ * installation does not satisfy, and let the user proceed anyway: the ranges are
+ * often stale metadata rather than a real break, so this informs instead of
+ * blocking.
+ */
+function CompatibilityDialog({
+  warning, onConfirm, onCancel, t,
+}: {
+  warning: MarketInstallWarning
+  onConfirm: () => void
+  onCancel: () => void
+  t: Translate
+}): ReactNode {
+  const rows = warning.mismatches.map(peer => t('compatRow', peer))
+  const copy = useMarketCopyFeedback([`${warning.fullName} (${warning.spec})`, ...rows].join('\n'))
+  return (
+    <Modal
+      open
+      onClose={onCancel}
+      title={t('compatTitle')}
+      description={t('compatSummary')}
+      footer={(
+        <>
+          <Button variant="outline" onClick={copy.onCopy}>
+            {copy.copied ? t('copied') : t('compatCopy')}
+          </Button>
+          <Button variant="outline" onClick={onCancel}>{t('compatCancel')}</Button>
+          <Button variant="primary" onClick={onConfirm}>{t('compatConfirm')}</Button>
+        </>
+      )}
+    >
+      <ul className={css.mismatchList}>
+        {warning.mismatches.map(peer => (
+          <li key={peer.name}>
+            <span className={css.mismatchName}>{peer.name}</span>
+            <span className={css.mismatchVersions}>{t('compatVersions', peer)}</span>
+          </li>
+        ))}
+      </ul>
+    </Modal>
+  )
+}
+
 /** Render the marketplace surface. */
 export function MarketplaceRoot({ controller, useView, locale, t }: MarketplaceRootProps): ReactNode {
   const view = useView(state => state)
@@ -556,6 +601,15 @@ export function MarketplaceRoot({ controller, useView, locale, t }: MarketplaceR
           </button>
         ) : null}
       </div>
+
+      {view.installWarning === null ? null : (
+        <CompatibilityDialog
+          warning={view.installWarning}
+          onConfirm={() => { controller.confirmInstallWarning() }}
+          onCancel={() => { controller.dismissInstallWarning() }}
+          t={t}
+        />
+      )}
 
       {view.restartConfirm ? (
         <RestartConfirmDialog

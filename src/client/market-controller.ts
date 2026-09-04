@@ -15,7 +15,9 @@ import {
   createMarketViewState, MARKET_PAGE_SIZE, type MarketInstallAction, type MarketViewState,
 } from './market-store.ts'
 import type { GitHubMarketPackageResult } from '@lovstudio/dsh-plugin-marketplace/host'
-import { pluginActionSession, type PluginActionOutcome } from './plugin-actions.ts'
+import {
+  pluginActionSession, type PluginActionOutcome, type PluginPeerMismatch,
+} from './plugin-actions.ts'
 import type { MarketFilters, MarketOrder, MarketRequest, MarketSort } from './types.ts'
 
 /** How often an open restart confirmation refreshes Agent activity. */
@@ -37,6 +39,8 @@ export interface MarketPorts {
   install: (spec: string) => Promise<PluginActionOutcome>
   /** Uninstall one package name through the official DSH CLI. */
   uninstall: (spec: string) => Promise<PluginActionOutcome>
+  /** Report the harness peer ranges one candidate spec would violate. */
+  checkCompatibility: (spec: string) => Promise<readonly PluginPeerMismatch[]>
   /** Read active Agent count before restart. */
   status: () => Promise<RestartActivity>
   /** Re-boot the application tree. */
@@ -299,6 +303,28 @@ export class MarketController {
       })
       return
     }
+    if (kind === 'install') {
+      // pnpm cannot judge these ranges — the harness ships the packages beside
+      // the launcher, so a violated peer reaches the browser as a link-time
+      // SyntaxError that takes down every plugin at once.
+      const mismatches = await this.ports.checkCompatibility(spec)
+      if (mismatches.length > 0) {
+        this.store.update((state) => {
+          state.action = null
+          state.installWarning = { fullName, spec, mismatches }
+        })
+        return
+      }
+    }
+    await this.performAction(kind, fullName, spec)
+  }
+
+  /** Delegate one resolved spec to the CLI and publish its exact result. */
+  private async performAction(
+    kind: 'install' | 'uninstall',
+    fullName: string,
+    spec: string,
+  ): Promise<void> {
     const operation = kind === 'install' ? this.ports.install(spec) : this.ports.uninstall(spec)
     await operation.then(
       (result) => {
@@ -311,6 +337,7 @@ export class MarketController {
             command: result.command,
           }
           if (!result.ok && result.error !== undefined) action.detail = result.error
+          if (result.hotMounted === true) action.hotMounted = true
           state.action = action
         })
         // The inventory decides the installed badge and the uninstall spec.
@@ -343,6 +370,24 @@ export class MarketController {
   /** Dismiss the settled package-action banner. */
   dismissAction(): void {
     this.store.update((state) => { state.action = null })
+  }
+
+  /** Install anyway, accepting the reported harness mismatches. */
+  confirmInstallWarning(): void {
+    const warning = this.store.getSnapshot().installWarning
+    if (warning === null) return
+    this.store.update((state) => {
+      state.installWarning = null
+      state.action = {
+        fullName: warning.fullName, kind: 'install', status: 'running', message: '', startedAt: Date.now(),
+      }
+    })
+    void this.performAction('install', warning.fullName, warning.spec)
+  }
+
+  /** Abandon the install that raised a compatibility warning. */
+  dismissInstallWarning(): void {
+    this.store.update((state) => { state.installWarning = null })
   }
 
   /** Restart immediately when idle, otherwise open the live safety confirmation. */

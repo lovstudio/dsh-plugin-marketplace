@@ -2,9 +2,15 @@
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { createRequire } from 'node:module'
+import satisfies from 'semver/functions/satisfies.js'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-settings'
+import {
+  bundleDelta, hotMount, hotUnmount, readBundles, resolveProfileDir, type LoaderLike,
+} from './hot-mount.ts'
 import { MARKET_SETTINGS_NAMESPACE, MarketSettingsSchema } from './market-settings.ts'
 
 export {
@@ -21,7 +27,17 @@ export const ACTION_TOKEN_PATH = '/plugin-marketplace/action-token'
 /** Browser route delegating one package change to the official `dsh plugin` CLI. */
 export const ACTION_PATH = '/plugin-marketplace/action'
 
+/** Browser route reporting how a candidate package fits the running harness. */
+export const COMPATIBILITY_PATH = '/plugin-marketplace/compatibility'
+
 const OUTPUT_LIMIT = 16_384
+
+/**
+ * The scope of the compatibility check. The harness ships these packages inside
+ * its own installation instead of the profile, so pnpm reports them as merely
+ * `missing peer` and cannot tell a satisfied range from a violated one.
+ */
+const HARNESS_SCOPE = '@deepseek-ai/'
 
 interface WebServerLike {
   register(route: {
@@ -46,6 +62,28 @@ interface PluginActionResult {
   exitCode: number
   command: string
   error?: string
+  /** True when the change already took effect without rebooting the launcher. */
+  hotMounted?: boolean
+}
+
+interface CompatibilityRequest {
+  token?: unknown
+  spec?: unknown
+}
+
+/** One harness package the candidate declares a range the installation violates. */
+interface PeerMismatch {
+  name: string
+  /** The range the candidate's `peerDependencies` declares. */
+  expected: string
+  /** The version this harness installation actually ships. */
+  actual: string
+}
+
+interface CompatibilityResult {
+  mismatches: PeerMismatch[]
+  /** False when the candidate manifest could not be read, so nothing was checked. */
+  checked: boolean
 }
 
 /** Keep only the diagnostic tail returned to the browser. */
@@ -65,6 +103,96 @@ function activeProfile(): string {
 function packageSpec(value: unknown): string | null {
   if (typeof value !== 'string' || value.length === 0 || value.length > 512) return null
   return /^[A-Za-z0-9@._~^+:/#=-]+$/.test(value) ? value : null
+}
+
+/**
+ * Resolve modules the way the running launcher does. The harness keeps its own
+ * packages next to the launcher rather than in the profile, so the profile's
+ * `node_modules` cannot answer what version is actually loaded.
+ */
+let harnessRequire: ReturnType<typeof createRequire> | null | undefined
+
+/** Version of one harness package as this launcher would load it, or null. */
+function harnessVersion(name: string): string | null {
+  if (harnessRequire === undefined) {
+    const launcher = process.argv[1]
+    harnessRequire = launcher === undefined ? null : createRequire(realpathSync(launcher))
+  }
+  if (harnessRequire === null) return null
+  try {
+    const manifest = harnessRequire(`${name}/package.json`) as { version?: unknown }
+    return typeof manifest.version === 'string' ? manifest.version : null
+  } catch {
+    // Absence is normal: the harness need not ship every package a plugin names.
+    return null
+  }
+}
+
+/** Keep only the string-valued peer ranges of a fetched manifest. */
+function peerRanges(manifest: unknown): Record<string, string> {
+  const peers = (manifest as { peerDependencies?: unknown } | null)?.peerDependencies
+  if (peers === null || typeof peers !== 'object') return {}
+  const ranges: Record<string, string> = {}
+  for (const [name, range] of Object.entries(peers as Record<string, unknown>)) {
+    if (typeof range === 'string' && range.length > 0) ranges[name] = range
+  }
+  return ranges
+}
+
+/** Read the peer ranges a `github:owner/repo#ref` spec would install. */
+async function githubPeerRanges(spec: string): Promise<Record<string, string> | null> {
+  const [path, ref] = spec.slice('github:'.length).split('#')
+  const parts = (path ?? '').split('/')
+  if (parts.length !== 2 || parts.some(part => part === '')) return null
+  const url = `https://raw.githubusercontent.com/${parts[0]!}/${parts[1]!}/${ref ?? 'HEAD'}/package.json`
+  const response = await fetch(url, { headers: { accept: 'application/json' } })
+  if (!response.ok) return null
+  return peerRanges(JSON.parse(await response.text()))
+}
+
+/** Read the peer ranges a published `name` or `name@version` spec would install. */
+async function registryPeerRanges(spec: string): Promise<Record<string, string> | null> {
+  const at = spec.lastIndexOf('@')
+  const name = at > 0 ? spec.slice(0, at) : spec
+  const wanted = at > 0 ? spec.slice(at + 1) : undefined
+  const url = `https://registry.npmjs.org/${name.split('/').map(encodeURIComponent).join('/')}`
+  const response = await fetch(url, { headers: { accept: 'application/vnd.npm.install-v1+json' } })
+  if (!response.ok) return null
+  const packument = JSON.parse(await response.text()) as {
+    versions?: Record<string, unknown>
+    'dist-tags'?: Record<string, string>
+  }
+  const versions = packument.versions ?? {}
+  const latest = packument['dist-tags']?.latest
+  const picked = wanted !== undefined && wanted in versions ? wanted : latest
+  return picked === undefined ? null : peerRanges(versions[picked])
+}
+
+/**
+ * Compare the harness ranges a candidate declares against what this
+ * installation ships. Only declared-and-present pairs are judged: a package the
+ * harness does not ship at all is an optional integration, not a conflict.
+ */
+async function checkCompatibility(spec: string): Promise<CompatibilityResult> {
+  let ranges: Record<string, string> | null
+  try {
+    ranges = spec.startsWith('github:') ? await githubPeerRanges(spec) : await registryPeerRanges(spec)
+  } catch {
+    ranges = null
+  }
+  if (ranges === null) return { mismatches: [], checked: false }
+  const mismatches: PeerMismatch[] = []
+  for (const [name, expected] of Object.entries(ranges)) {
+    if (!name.startsWith(HARNESS_SCOPE)) continue
+    const actual = harnessVersion(name)
+    if (actual === null) continue
+    // The harness releases prereleases as its shipping versions, so excluding
+    // them the way plain semver does would flag every healthy plugin.
+    if (!satisfies(actual, expected, { includePrerelease: true })) {
+      mismatches.push({ name, expected, actual })
+    }
+  }
+  return { mismatches, checked: true }
 }
 
 /** Read one small JSON request body. */
@@ -133,6 +261,24 @@ function runPluginAction(
   })
 }
 
+/**
+ * Reflect one settled package change in the running Loader tree.
+ * @returns true when every changed package took effect without a reboot.
+ */
+async function applyHotMount(ctx: Context, before: readonly string[]): Promise<boolean> {
+  const loader = ctx.get('loader') as LoaderLike | undefined
+  const dir = resolveProfileDir(activeProfile())
+  const { added, removed } = bundleDelta(before, readBundles(dir))
+  if (loader === undefined || added.length + removed.length === 0) return false
+  const logger = (ctx.root as { logger?: (name: string) => { warn: (message: string) => void } })
+    .logger?.('plugin-market')
+  const warn = (reason: string): void => { logger?.warn(`hot mount skipped — ${reason}`) }
+  const results: boolean[] = []
+  for (const pkg of removed) results.push(await hotUnmount(loader, pkg))
+  for (const pkg of added) results.push(await hotMount(loader, dir, pkg, warn))
+  return results.every(Boolean)
+}
+
 /** Register Marketplace settings and its authenticated package-action routes. */
 export function apply(ctx: Context): void {
   ctx.inject(['settings'], (settingsCtx) => {
@@ -185,15 +331,44 @@ export function apply(ctx: Context): void {
         }
         running = true
         try {
-          writeJson(res, 200, await runPluginAction(request.action, spec, (next) => { child = next }))
+          const before = readBundles(resolveProfileDir(activeProfile()))
+          const result = await runPluginAction(request.action, spec, (next) => { child = next })
+          if (result.ok) {
+            result.hotMounted = await applyHotMount(ctx, before)
+          }
+          writeJson(res, 200, result)
         } finally {
           running = false
         }
       },
     })
+    const removeCompatibility = webServer.register({
+      kind: 'exact',
+      path: COMPATIBILITY_PATH,
+      handler: async (req, res) => {
+        if (req.method !== 'POST' || req.headers['content-type']?.split(';')[0] !== 'application/json') {
+          writeJson(res, 405, { error: 'JSON POST required' })
+          return
+        }
+        let request: CompatibilityRequest
+        try {
+          request = await readRequest(req)
+        } catch (error: unknown) {
+          writeJson(res, 400, { error: error instanceof Error ? error.message : String(error) })
+          return
+        }
+        const spec = packageSpec(request.spec)
+        if (request.token !== token || spec === null) {
+          writeJson(res, 400, { error: 'invalid compatibility request' })
+          return
+        }
+        writeJson(res, 200, await checkCompatibility(spec))
+      },
+    })
     return () => {
       removeToken()
       removeAction()
+      removeCompatibility()
       child?.kill('SIGTERM')
       child = null
     }

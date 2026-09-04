@@ -33,7 +33,7 @@ import { MarketplaceRoot } from './MarketplaceRoot.tsx'
 import { MarketOverlay } from './MarketOverlay.tsx'
 import { MarketSettingsCard } from './MarketSettingsCard.tsx'
 import { MarketSettingsCardController, type CredentialRemote } from './market-settings-card-controller.ts'
-import { resetPluginActionToken, runPluginAction } from './plugin-actions.ts'
+import { checkPluginCompatibility, resetPluginActionToken, runPluginAction } from './plugin-actions.ts'
 import { SidebarMarketEntry } from './SidebarMarketEntry.tsx'
 import {
   DEFAULT_MARKET_PROVIDER, MARKET_SETTINGS_NAMESPACE, type MarketSettings,
@@ -161,6 +161,7 @@ function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
     },
     install: async (spec) => runPluginAction('install', spec),
     uninstall: async (spec) => runPluginAction('uninstall', spec),
+    checkCompatibility: async (spec) => checkPluginCompatibility(spec),
     status: () => restartUi()?.status() ?? Promise.resolve({ running: false, active: 0 }),
     restart: () => {
       const ui = restartUi()

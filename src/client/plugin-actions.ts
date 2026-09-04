@@ -6,10 +6,22 @@ export interface PluginActionOutcome {
   exitCode: number
   command: string
   error?: string
+  /** True when the Host already mounted the package without a reboot. */
+  hotMounted?: boolean
+}
+
+/** One harness package whose installed version violates a declared peer range. */
+export interface PluginPeerMismatch {
+  name: string
+  /** The range the candidate package declares. */
+  expected: string
+  /** The version this harness installation ships. */
+  actual: string
 }
 
 const TOKEN_PATH = '/plugin-marketplace/action-token'
 const ACTION_PATH = '/plugin-marketplace/action'
+const COMPATIBILITY_PATH = '/plugin-marketplace/compatibility'
 
 /** What this launcher can do once a package action changed the profile. */
 export interface PluginActionSession {
@@ -39,6 +51,38 @@ export async function pluginActionSession(): Promise<PluginActionSession> {
 /** Drop the token after the Host generation changes. */
 export function resetPluginActionToken(): void {
   sessionPromise = null
+}
+
+/**
+ * Report the harness peer ranges one candidate package would violate. The check
+ * is advisory: an unreachable manifest or a failed request yields no mismatch,
+ * because a diagnostic must never be the reason an install cannot start.
+ */
+export async function checkPluginCompatibility(
+  spec: string,
+  retryToken = true,
+): Promise<readonly PluginPeerMismatch[]> {
+  let response: Response
+  try {
+    response = await fetch(COMPATIBILITY_PATH, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: (await pluginActionSession()).token, spec }),
+    })
+  } catch {
+    return []
+  }
+  if (response.status === 400 && retryToken) {
+    resetPluginActionToken()
+    return checkPluginCompatibility(spec, false)
+  }
+  if (!response.ok) return []
+  const body = await response.json().catch(() => null) as { mismatches?: unknown } | null
+  if (!Array.isArray(body?.mismatches)) return []
+  return body.mismatches.filter((row): row is PluginPeerMismatch => {
+    const peer = row as Partial<PluginPeerMismatch> | null
+    return typeof peer?.name === 'string' && typeof peer.expected === 'string' && typeof peer.actual === 'string'
+  })
 }
 
 /** Delegate one install or uninstall to the current official DSH CLI. */
@@ -71,5 +115,6 @@ export async function runPluginAction(
     exitCode: body.exitCode,
     command: body.command,
     ...typeof body.error === 'string' ? { error: body.error } : {},
+    ...body.hotMounted === true ? { hotMounted: true } : {},
   }
 }
