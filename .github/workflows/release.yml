@@ -60,15 +60,16 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
-      # Students install from the git tag, so a missing npm credential must not
-      # cost them the release. Skip the registry and say so instead.
-      - name: Publish to npm
-        if: env.NODE_AUTH_TOKEN != ''
-        run: npm publish --provenance --access public
-      - name: Report a skipped npm publish
-        if: env.NODE_AUTH_TOKEN == ''
-        run: echo "::warning::NPM_TOKEN is not set, so ${GITHUB_REF_NAME} reached GitHub only."
+      # Students install from the git tag, so the GitHub release comes first:
+      # a registry credential this repository cannot fix must not cost them the
+      # release. The npm step still fails the run, keeping that visible.
       - name: Create GitHub release
         run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: Report a skipped npm publish
+        if: env.NODE_AUTH_TOKEN == ''
+        run: echo "::warning::NPM_TOKEN is not set, so ${GITHUB_REF_NAME} reached GitHub only."
+      - name: Publish to npm
+        if: env.NODE_AUTH_TOKEN != ''
+        run: npm publish --provenance --access public
