@@ -20,14 +20,14 @@ Prerequisites: Node.js 22.19+ or 24+, pnpm 11 (`corepack enable` or `npm i -g pn
 ```sh
 git clone --depth 1 --branch dsh-v0.1.2-rc.1 https://github.com/deepseek-ai/deepseek-harness.git
 cd deepseek-harness && pnpm install && pnpm run build
-pnpm dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.3
+pnpm dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.4
 pnpm dsh web
 ```
 
 **Without a checkout (npx; compiled harness only):**
 
 ```sh
-npx @deepseek-ai/dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.3
+npx @deepseek-ai/dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.4
 npx @deepseek-ai/dsh web
 ```
 
@@ -54,7 +54,7 @@ catalog codecs, `zod`, `schemastery`, `clsx`, and CSS are bundled locally.
 
 The `github` provider searches `topic:dsh-plugin` through the Host-side `pluginMarketGithub` Remote. Initialization recursively bisects the full `pushed` interval whenever GitHub reports more than 1,000 matches, then pages each leaf from the older interval to the newer one. After every successful GitHub request, one IndexedDB transaction commits that response's rows together with the exact next interval/page cursor; interruption before the transaction replays that request, while interruption after it resumes at the next request. Committed staging rows immediately join the local list, detail, suggestion, and facet projections, and the active marketplace list re-runs its current local query whenever that committed row count grows. Incremental synchronization starts inclusively at the greatest `pushed_at` returned by the previous completed synchronization and upserts repositories by GitHub id; when a completed scan returns no newer row, its frozen upper bound becomes the next cursor. The catalog cursor advances only after the complete snapshot succeeds, so the last complete snapshot remains queryable while the per-request staging checkpoint resumes. The Host resolves `GITHUB_TOKEN` per request, enforces authenticated search, and never returns the token to the browser.
 
-The marketplace card in Settings > Plugins > Plugin configuration stages `provider` and `syncOnStartup`, then writes them to the Host settings document on Save. GitHub is the default provider, so the card initially exposes a write-only token field backed by `credentials.set({ ref: 'GITHUB_TOKEN' })` plus the official GitHub token-creation link; the settings document stores no secret. After Save, the token draft clears while its configured badge and optional last four characters remain visible. Leaving the field blank keeps the stored token, and **Test** calls GitHub's authenticated `/user` endpoint with a draft token when present or the stored token otherwise. `syncOnStartup` defaults to `true` and runs one silent incremental check after each new application runtime accepts its settings. The overlay header exposes the same operation as a refresh button labeled with the complete local plugin count and relative update age; while synchronization runs, that same button replaces the summary with one completed/total counter, and a specific failure remains visible beside it. The list distinguishes an empty local catalog, an active synchronization waiting for its first committed row, and a non-empty query/filter that matches no rows instead of labeling all three as a failed search.
+The marketplace card in Settings > Plugins > Plugin configuration stages `provider` and `syncOnStartup`, then writes them to the Host settings document on Save. GitHub is the default provider, so the card initially exposes a write-only token field backed by `credentials.set({ ref: 'GITHUB_TOKEN' })` plus the official GitHub token-creation link; the settings document stores no secret. After Save, the token draft clears while its configured badge remains visible. Leaving the field blank keeps the stored token, and **Test** calls GitHub's authenticated `/user` endpoint with a draft token when present or the stored token otherwise. `syncOnStartup` defaults to `true` and runs one silent incremental check after each new application runtime accepts its settings. The overlay header exposes the same operation as a refresh button labeled with the complete local plugin count and relative update age; while synchronization runs, that same button replaces the summary with one completed/total counter, and a specific failure remains visible beside it. The list distinguishes an empty local catalog, an active synchronization waiting for its first committed row, and a non-empty query/filter that matches no rows instead of labeling all three as a failed search.
 
 ## Search, filters, and ranking
 

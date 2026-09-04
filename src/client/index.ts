@@ -12,7 +12,6 @@
 
 import z from '@deepseek-ai/schemastery'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 import pluginMarketGithubRemote from '@lovstudio/dsh-plugin-marketplace/remote'
 // Type-only: the ctx.remote Context merge and the inventory snapshot type.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
@@ -33,7 +32,7 @@ import { en, zh, type PluginMarketKey } from './locales.ts'
 import { MarketplaceRoot } from './MarketplaceRoot.tsx'
 import { MarketOverlay } from './MarketOverlay.tsx'
 import { MarketSettingsCard } from './MarketSettingsCard.tsx'
-import { MarketSettingsCardController } from './market-settings-card-controller.ts'
+import { MarketSettingsCardController, type CredentialRemote } from './market-settings-card-controller.ts'
 import { resetPluginActionToken, runPluginAction } from './plugin-actions.ts'
 import { SidebarMarketEntry } from './SidebarMarketEntry.tsx'
 import {
@@ -78,7 +77,7 @@ export const Config = z.object({
 /** Required services (cordis fiber inject). Every `remote.<ns>` the plugin
  * touches must be declared, or the Cordis tracker rejects the access. */
 export const inject = [
-  'slots', 'locale', 'connection', 'remote', 'settingsScope',
+  'slots', 'locale', 'remote', 'settingsScope', 'remote.credentials',
   'remote.pluginInventory',
 ]
 
@@ -110,7 +109,6 @@ export async function apply(ctx: ClientContext, config?: MarketConfig): Promise<
 
 /** Mount marketplace consumers after the package-owned GitHub Remote namespace is active. */
 function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
-  const { api: connectionApi } = ctx.get('connection') as ConnectionHandle
   const betterRestartUi = ctx.get('betterRestartUi') as BetterRestartUi | undefined
   const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-plugin-market: dictionaries')
@@ -148,7 +146,7 @@ function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
     },
   })
   const settings = ctx.settingsScope.bind<MarketSettings>({ namespace: MARKET_SETTINGS_NAMESPACE })
-  const settingsCard = new MarketSettingsCardController(settings, connectionApi, async (token) => {
+  const settingsCard = new MarketSettingsCardController(settings, (ctx.remote as unknown as { credentials: CredentialRemote }).credentials, async (token) => {
     const response = await ctx.remote.pluginMarketGithub.probeCredential(token === undefined ? {} : { token })
     if (!response.ok) {
       throw new Error(`pluginMarketGithub.probeCredential failed: ${response.error.message}`)
@@ -186,7 +184,7 @@ function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
     'ui-plugin-market: installed-name refresh',
   )
   ctx.effect(
-    () => ctx.remote.$on('credentials/updated', (ref) => {
+    () => ctx.remote.$on('credentials/reference-updated', (ref: string) => {
       settingsCard.refreshCredential(ref)
       if (ref === 'GITHUB_TOKEN' && providerRouter.selected() === 'github') void controller.syncCatalog(true)
     }),

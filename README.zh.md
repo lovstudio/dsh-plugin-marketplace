@@ -20,14 +20,14 @@
 ```sh
 git clone --depth 1 --branch dsh-v0.1.2-rc.1 https://github.com/deepseek-ai/deepseek-harness.git
 cd deepseek-harness && pnpm install && pnpm run build
-pnpm dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.3
+pnpm dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.4
 pnpm dsh web
 ```
 
 **不 clone（npx，只有编译后的 harness）：**
 
 ```sh
-npx @deepseek-ai/dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.3
+npx @deepseek-ai/dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.4
 npx @deepseek-ai/dsh web
 ```
 

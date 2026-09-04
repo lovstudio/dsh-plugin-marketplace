@@ -1,6 +1,5 @@
 /** Staged plugin-configuration card over the marketplace settings namespace. */
 
-import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
@@ -65,7 +64,19 @@ export interface MarketSettingsCardInjected {
 }
 
 type Draft<T> = { kind: 'set'; value: T } | { kind: 'clear' }
-type MarketCredentialApi = Pick<IApiClient['credentials'], 'describe' | 'set'>
+/**
+ * The `remote.credentials` face the card reads and writes through — a
+ * structural mirror of the harness namespace its own settings cards use, so
+ * the plugin needs no `connection.api` surface (removed after 0.1.2-alpha).
+ */
+export interface CredentialRemote {
+  describe(refs: readonly string[]): Promise<{
+    ok: boolean
+    value?: Record<string, { configured?: boolean; writable?: boolean; suffix?: string } | undefined>
+  }>
+  /** Resolves when the Host stored the value; rejects when it refused. */
+  set(ref: string, value: string): Promise<unknown>
+}
 type MarketCredentialProbe = (token?: string) => Promise<{ login: string }>
 
 /** Owns the marketplace card's drafts and revision-fenced settings writes. */
@@ -85,7 +96,7 @@ export class MarketSettingsCardController {
   /** @param scope - Host-backed `ui-plugin-market` settings scope. */
   constructor(
     private readonly scope: SettingsScope<MarketSettings>,
-    private readonly api: { credentials: MarketCredentialApi },
+    private readonly credentials: CredentialRemote,
     private readonly probeCredential: MarketCredentialProbe,
   ) {
     this.store = createSnapshotStore(this.projection())
@@ -155,8 +166,7 @@ export class MarketSettingsCardController {
     let landed = true
     if (token.length > 0) {
       try {
-        const response = await this.api.credentials.set({ ref: 'GITHUB_TOKEN', value: token })
-        landed = response.result.ok
+        await this.credentials.set('GITHUB_TOKEN', token)
       } catch (_credentialWriteFailure) {
         landed = false
       }
@@ -318,9 +328,9 @@ export class MarketSettingsCardController {
 
   private async readGithubToken(): Promise<void> {
     try {
-      const response = await this.api.credentials.describe({ refs: ['GITHUB_TOKEN'] })
-      if (!response.result.ok) return
-      const view = response.result.value.credentials.GITHUB_TOKEN
+      const response = await this.credentials.describe(['GITHUB_TOKEN'])
+      if (!response.ok) return
+      const view = response.value?.GITHUB_TOKEN
       const configured = view?.configured ?? false
       const writable = view?.writable ?? true
       const suffix = view?.suffix
