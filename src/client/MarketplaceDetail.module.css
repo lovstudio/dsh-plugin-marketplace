@@ -339,3 +339,12 @@
 .actionOn:hover {
   color: var(--dsw-alias-label-primary);
 }
+
+/* The CLI reports nothing until it exits; the spin is the liveness signal. */
+.spinner {
+  animation: marketSpin 0.9s linear infinite;
+}
+
+@keyframes marketSpin {
+  to { transform: rotate(360deg); }
+}

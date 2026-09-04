@@ -1,7 +1,7 @@
 {
   "name": "@lovstudio/dsh-plugin-marketplace",
   "description": "Local-first DeepSeek Harness plugin marketplace with GitHub and dshfind providers",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "main": "index.js",
   "types": "lib/index.d.ts",
@@ -100,7 +100,8 @@
     "@deepseek-ai/dsh-credentials": "0.1.2-alpha.2",
     "@deepseek-ai/dsh-invariants": "0.1.2-alpha.2",
     "@deepseek-ai/dsh-settings": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-typert-protocol": "0.1.2-alpha.2"
+    "@deepseek-ai/dsh-typert-protocol": "0.1.2-alpha.2",
+    "@lovstudio/dsh-better-restart": ">=0.1.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
@@ -127,6 +128,9 @@
       "optional": true
     },
     "@deepseek-ai/dsh-typert-protocol": {
+      "optional": true
+    },
+    "@lovstudio/dsh-better-restart": {
       "optional": true
     }
   }

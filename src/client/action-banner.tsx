@@ -6,18 +6,26 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { useMarketCopyFeedback } from './copy-feedback.ts'
 import type { MarketInstallAction } from './market-store.ts'
 
-/** Label an in-flight package operation. */
+/**
+ * Label an in-flight package operation. The CLI reports nothing before it
+ * exits, so the elapsed second count carries the liveness the label cannot.
+ */
 export function runningLabel(
   action: MarketInstallAction,
   t: PropsLocale<'pluginMarket'>['t'],
+  elapsedSeconds = 0,
 ): string {
-  return action.kind === 'install' ? t('installing') : t('uninstalling')
+  const label = action.kind === 'install' ? t('installing') : t('uninstalling')
+  return elapsedSeconds <= 0 ? label : `${label} ${String(elapsedSeconds)}s`
 }
 
 /** Build the diagnostic clipboard payload of a failed action. */
 function errorCopyText(action: MarketInstallAction): string {
+  const what = action.message === 'restart-failed'
+    ? 'Restart'
+    : action.kind === 'install' ? 'Install' : 'Uninstall'
   return [
-    `${action.kind === 'install' ? 'Install' : 'Uninstall'} failed: ${action.fullName}`,
+    `${what} failed: ${action.fullName}`,
     action.command === undefined ? null : `Command: ${action.command}`,
     `Status: ${action.message}`,
     action.detail === undefined ? null : `Error:\n${action.detail}`,
@@ -38,7 +46,9 @@ export function ActionBanner({
   const success = action.status === 'ok'
   const text = success
     ? action.kind === 'install' ? t('installSuccess') : t('uninstallSuccess')
-    : action.message === 'not-installable' ? t('notInstallable') : t('actionFailed')
+    : action.message === 'not-installable'
+      ? t('notInstallable')
+      : action.message === 'restart-failed' ? t('restartFailed') : t('actionFailed')
   return (
     <div className={css.actionBanner} data-tone={success ? 'ok' : 'error'} role="status">
       <span className={css.actionText}>{text}</span>

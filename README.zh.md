@@ -20,14 +20,14 @@
 ```sh
 git clone --depth 1 --branch dsh-v0.1.2-rc.1 https://github.com/deepseek-ai/deepseek-harness.git
 cd deepseek-harness && pnpm install && pnpm run build
-pnpm dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.6
+pnpm dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.7
 pnpm dsh web
 ```
 
 **不 clone（npx，只有编译后的 harness）：**
 
 ```sh
-npx @deepseek-ai/dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.6
+npx @deepseek-ai/dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.7
 npx @deepseek-ai/dsh web
 ```
 
@@ -72,6 +72,8 @@ Client bundle 只请求冻结的平台 module-table entries；目录 codec、`zo
 安装 GitHub 来源的插件时会先解析仓库自身的 `package.json`：若 npm 上存在同名包，则安装已发布的包——因为 git 形式的 spec 会让 pnpm 执行该包的 `prepare` 构建，而 pnpm 在该构建被精确加入允许列表前会拒绝执行。npm 上不存在的仓库仍按 `github:owner/repo` 安装。所有动作都带 `-w`，因为 profile 目录本身就是一个 pnpm workspace root。
 
 Star 与取消 Star 通过同一个 Host 网关以认证用户身份执行，token 不进入浏览器。搜索目录不需要任何 scope，但 Star 需要：经典 token 需勾选 `public_repo`，细粒度 token 需要 `Starring` 用户权限（写）加 `Metadata` 读。缺少权限时 Star 动作不显示，设置卡片的**测试**会给出提示，被拒绝的 Star 会原样保留 GitHub 的报错并提供复制按钮。
+
+CLI 在退出前不会报告任何进度，因此执行中的动作让按钮自己转圈并计时，而不是编造进度条。完成后的横幅提供 `@lovstudio/dsh-better-restart`（可选 peer，每次点击时解析，因为该服务来自另一个插件的 effect）发布的重启；该插件缺失或启动器没有重启服务时，横幅给出原因并提供复制按钮，而不是毫无反应。
 
 DeepSeek Harness 仍通过 `dsh plugin` CLI 统一负责 profile 的全部持久化变更。Marketplace Host 只提供两个同源且受每代随机 token 保护的动作路由；每次操作都启动当前 DSH 可执行文件的 `plugin` 模式，因此依赖安装、profile 写入与 bundle 对账继续使用官方 CLI，而不是维护第二套包管理器。成功后界面会进入共享的 Better Restart 流程。插件启停仍属于 profile 配置界面。
 

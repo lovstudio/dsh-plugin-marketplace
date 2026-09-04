@@ -83,7 +83,8 @@ export const inject = [
 
 interface BetterRestartUi {
   status(): Promise<{ running: boolean; active: number }>
-  restart(): void
+  /** Older builds return nothing; newer ones reject when the restart fails. */
+  restart(): void | Promise<void>
 }
 
 /** Map a locale id onto the description-locale preference of agent copy. */
@@ -109,7 +110,11 @@ export async function apply(ctx: ClientContext, config?: MarketConfig): Promise<
 
 /** Mount marketplace consumers after the package-owned GitHub Remote namespace is active. */
 function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
-  const betterRestartUi = ctx.get('betterRestartUi') as BetterRestartUi | undefined
+  // Resolved per call, not once at mount: Better Restart publishes the service
+  // from its own effect, so a mount that runs first would cache `undefined`
+  // for the lifetime of the application.
+  const restartUi = (): BetterRestartUi | undefined =>
+    ctx.get('betterRestartUi') as BetterRestartUi | undefined
   const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-plugin-market: dictionaries')
 
@@ -156,11 +161,15 @@ function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
     },
     install: async (spec) => runPluginAction('install', spec),
     uninstall: async (spec) => runPluginAction('uninstall', spec),
-    status: () => betterRestartUi?.status() ?? Promise.resolve({ running: false, active: 0 }),
+    status: () => restartUi()?.status() ?? Promise.resolve({ running: false, active: 0 }),
     restart: () => {
-      if (betterRestartUi === undefined) throw new Error('Better Restart is not active')
-      betterRestartUi.restart()
-      return Promise.resolve()
+      const ui = restartUi()
+      if (ui === undefined) {
+        return Promise.reject(new Error(
+          'Better Restart is not active: install @lovstudio/dsh-better-restart to restart from the marketplace',
+        ))
+      }
+      return Promise.resolve(ui.restart())
     },
   })
   const settings = ctx.settingsScope.bind<MarketSettings>({ namespace: MARKET_SETTINGS_NAMESPACE })

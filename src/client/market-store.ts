@@ -38,6 +38,8 @@ export interface MarketInstallAction {
   detail?: string
   /** The official command that performed or can reproduce the action. */
   command?: string
+  /** Epoch milliseconds the operation started, for the elapsed-time readout. */
+  startedAt?: number
 }
 
 /** Marketplace store state. */

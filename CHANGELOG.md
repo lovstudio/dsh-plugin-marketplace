@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.7 - 2026-09-05
+
+- Show that an install is working: the action button spins and counts the seconds it has been running, because the `dsh plugin` CLI reports nothing until it exits.
+- Resolve Better Restart per call instead of once at mount. That service is published from another plugin's effect, so a marketplace that mounted first cached `undefined` and every **Restart app** click did nothing.
+- Publish a restart failure on the action banner, with the reason and a copy action, instead of dropping it into an unhandled rejection. Requires `@lovstudio/dsh-better-restart` 0.1.3, which reports the launcher's missing `appRestart` service rather than answering 204 to a restart that never happens.
+- Declare `@lovstudio/dsh-better-restart` as an optional peer: the marketplace still loads without it, and says so when a restart is asked for.
+
 ## 0.1.6 - 2026-09-05
 
 - Pass `-w` to every `dsh plugin` action: a profile directory is its own pnpm workspace root, which pnpm refuses to change without it (`ERR_PNPM_ADDING_TO_ROOT`).

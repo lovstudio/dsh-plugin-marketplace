@@ -290,7 +290,7 @@ export class MarketController {
   /** Run one profile package action and publish its exact result. */
   private async runAction(kind: 'install' | 'uninstall', fullName: string): Promise<void> {
     this.store.update((state) => {
-      state.action = { fullName, kind, status: 'running', message: '' }
+      state.action = { fullName, kind, status: 'running', message: '', startedAt: Date.now() }
     })
     const spec = await this.actionSpec(this.store.getSnapshot(), fullName, kind)
     if (spec === null) {
@@ -359,7 +359,7 @@ export class MarketController {
       return
     }
     if (!activity.running) {
-      await this.ports.restart()
+      await this.requestRestart()
       return
     }
     this.store.update((state) => {
@@ -381,10 +381,24 @@ export class MarketController {
   }
 
   /** Confirm the pending restart. */
+  /** Ask Better Restart to reboot, publishing a failure the banner can show. */
+  private async requestRestart(): Promise<void> {
+    try {
+      await this.ports.restart()
+    } catch (reason: unknown) {
+      this.store.update((state) => {
+        const detail = reason instanceof Error ? reason.message : String(reason)
+        state.action = state.action === null
+          ? null
+          : { ...state.action, status: 'error', message: 'restart-failed', detail }
+      })
+    }
+  }
+
   confirmRestart(): void {
     this.stopRestartPoll()
     this.store.update((state) => { state.restartConfirm = false })
-    void this.ports.restart()
+    void this.requestRestart()
   }
 
   /** Dismiss the pending restart confirmation. */

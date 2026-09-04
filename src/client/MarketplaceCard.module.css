@@ -254,3 +254,12 @@
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
+
+/* The CLI reports nothing until it exits; the spin is the liveness signal. */
+.spinner {
+  animation: marketSpin 0.9s linear infinite;
+}
+
+@keyframes marketSpin {
+  to { transform: rotate(360deg); }
+}

@@ -6,13 +6,14 @@
 
 import { useEffect, type ReactNode } from 'react'
 import {
-  IconCloseOutline16, IconCopyOutline16, IconDownloadOutline16, IconRightUpOutline14,
+  IconCloseOutline16, IconCopyOutline16, IconDownloadOutline16, IconLoadingOutline16, IconRightUpOutline14,
   IconTrashOutline16, IconWarningOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import clsx from 'clsx'
 import { ActionBanner, runningLabel } from './action-banner.tsx'
 import { IconStarFill16, IconStarOutline16 } from './icons.tsx'
+import { useElapsedSeconds } from './use-elapsed.ts'
 import { useMarketCopyFeedback } from './copy-feedback.ts'
 import { installCommand, installSpec, isInstalled, pluginAgentMarkdown, uninstallCommand, uninstallSpec } from './agent-copy.ts'
 import type { MarketInstallAction } from './market-store.ts'
@@ -79,6 +80,7 @@ export function MarketplaceDetail({
     : installedFlag ? uninstallSpec(detail, installed) : installSpec(detail)
   const ownAction = action !== null && detail !== null && action.fullName === detail.fullName ? action : null
   const running = ownAction?.status === 'running'
+  const elapsed = useElapsedSeconds(running ? ownAction?.startedAt : undefined)
   const agentCopy = useMarketCopyFeedback(detail === null ? '' : pluginAgentMarkdown(detail, locale))
   const idCopy = useMarketCopyFeedback(detail?.fullName ?? '')
 
@@ -208,9 +210,11 @@ export function MarketplaceDetail({
                   disabled={spec === null || running}
                   onClick={() => { if (installedFlag) onUninstall(detail.fullName); else onInstall(detail.fullName) }}
                 >
-                  {installedFlag ? <IconTrashOutline16 size={14} /> : <IconDownloadOutline16 size={14} />}
+                  {running
+                    ? <IconLoadingOutline16 size={14} className={css.spinner} />
+                    : installedFlag ? <IconTrashOutline16 size={14} /> : <IconDownloadOutline16 size={14} />}
                   {running && ownAction !== null
-                    ? runningLabel(ownAction, t)
+                    ? runningLabel(ownAction, t, elapsed)
                     : installedFlag ? t('uninstall') : t('install')}
                 </button>
               )}

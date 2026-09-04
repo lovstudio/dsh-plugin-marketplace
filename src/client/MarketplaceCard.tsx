@@ -7,12 +7,14 @@
 import { useState, type ReactNode } from 'react'
 import {
   IconCopyOutline16, IconDownloadOutline16, IconEllipsisOutline16, IconListPenOutline16,
+  IconLoadingOutline16,
   IconRightUpOutline14, IconTrashOutline16, Menu, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import clsx from 'clsx'
 import { ActionBanner, runningLabel } from './action-banner.tsx'
 import { IconStarFill16, IconStarOutline16 } from './icons.tsx'
+import { useElapsedSeconds } from './use-elapsed.ts'
 import { useMarketCopyFeedback } from './copy-feedback.ts'
 import { installSpec, isInstalled, pluginAgentMarkdown, uninstallSpec } from './agent-copy.ts'
 import type { MarketInstallAction } from './market-store.ts'
@@ -69,6 +71,7 @@ export function MarketplaceCard({
   const spec = installedFlag ? uninstallSpec(plugin, installed) : installSpec(plugin)
   const ownAction = action !== null && action.fullName === plugin.fullName ? action : null
   const running = ownAction?.status === 'running'
+  const elapsed = useElapsedSeconds(running ? ownAction?.startedAt : undefined)
   // Everything that is not install or star lives behind the overflow menu, so
   // one row keeps its shape as the action set grows.
   const menuItems: readonly MenuEntry[] = [
@@ -134,9 +137,11 @@ export function MarketplaceCard({
           onClick={() => { if (installedFlag) onUninstall(plugin.fullName); else onInstall(plugin.fullName) }}
           aria-label={installedFlag ? t('uninstall') : t('install')}
         >
-          {installedFlag ? <IconTrashOutline16 size={14} /> : <IconDownloadOutline16 size={14} />}
+          {running
+            ? <IconLoadingOutline16 size={14} className={css.spinner} />
+            : installedFlag ? <IconTrashOutline16 size={14} /> : <IconDownloadOutline16 size={14} />}
           {running && ownAction !== null
-            ? runningLabel(ownAction, t)
+            ? runningLabel(ownAction, t, elapsed)
             : installedFlag ? t('uninstall') : t('install')}
         </button>
         <Menu
