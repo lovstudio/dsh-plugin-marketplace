@@ -87,8 +87,13 @@ function parsePlugin(raw: unknown): MarketPluginSummary {
     summary.grade = record.grade
   }
   if (typeof record.risk_note === 'string') summary.riskNote = record.risk_note
-  const install = record.install as Record<string, unknown> | undefined
-  if (install !== undefined && typeof install === 'object') {
+  const install = typeof record.install === 'object' && record.install !== null
+    ? record.install as Record<string, unknown>
+    // GitHub rows cached before the provider probed installs carry none.
+    : typeof record._github_id === 'number' && summary.fullName.length > 0
+      ? githubInstallInfo(summary.fullName)
+      : undefined
+  if (install !== undefined) {
     const parsed: NonNullable<MarketPluginSummary['install']> = {}
     if (typeof install.cmd === 'string') parsed.cmd = install.cmd
     if (typeof install.kind === 'string') parsed.kind = install.kind
@@ -455,6 +460,21 @@ const GITHUB_EPOCH = Date.parse('2008-01-01T00:00:00.000Z')
 const GITHUB_QUERY_LIMIT = 1_000
 const GITHUB_PAGE_SIZE = 100
 
+/**
+ * The install probe of a GitHub Topic row. GitHub search carries no package
+ * manifest, so the spec stays the repository itself and pnpm resolves the real
+ * dependency name while installing.
+ * @param fullName - `owner/repository`.
+ * @returns the wire-shaped install probe.
+ */
+function githubInstallInfo(fullName: string): Record<string, unknown> {
+  return {
+    cmd: `dsh plugin --profile web add github:${fullName}`,
+    source: 'auto',
+    kind: 'git',
+  }
+}
+
 /** Convert a validated GitHub row into the cache's provider-neutral wire record. */
 function githubCatalogRow(repository: GitHubMarketRepository): Record<string, unknown> {
   return {
@@ -474,6 +494,7 @@ function githubCatalogRow(repository: GitHubMarketRepository): Record<string, un
     is_insider: false,
     is_risky: false,
     is_plugin: true,
+    install: githubInstallInfo(repository.fullName),
   }
 }
 

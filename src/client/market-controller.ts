@@ -247,7 +247,7 @@ export class MarketController {
     const row = state.items.find(plugin => plugin.fullName === fullName)
       ?? (state.detail !== null && state.detail.fullName === fullName ? state.detail : undefined)
     if (row === undefined) return null
-    return kind === 'install' ? installSpec(row) : uninstallSpec(row)
+    return kind === 'install' ? installSpec(row) : uninstallSpec(row, state.installed)
   }
 
   /** Run one profile package action and publish its exact result. */

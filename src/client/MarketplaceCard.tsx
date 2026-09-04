@@ -56,7 +56,7 @@ export function MarketplaceCard({
   const agentCopy = useMarketCopyFeedback(pluginAgentMarkdown(plugin, locale))
   const badge = badgeLabel(t, plugin)
   const installedFlag = isInstalled(plugin, installed)
-  const spec = installedFlag ? uninstallSpec(plugin) : installSpec(plugin)
+  const spec = installedFlag ? uninstallSpec(plugin, installed) : installSpec(plugin)
   const ownAction = action !== null && action.fullName === plugin.fullName ? action : null
   const running = ownAction?.status === 'running'
 

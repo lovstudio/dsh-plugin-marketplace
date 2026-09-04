@@ -7,6 +7,25 @@
 import type { MarketPluginSummary } from './types.ts'
 
 /**
+ * The installed module name of a plugin row, when the Host inventory carries
+ * one. Providers that probe npm supply the exact package name; providers that
+ * only see the repository fall back to the repository name.
+ * @param plugin - the plugin row.
+ * @param installed - installed module names from the Host inventory remote.
+ * @returns the matching installed module name, or null.
+ */
+export function installedName(
+  plugin: MarketPluginSummary,
+  installed: readonly string[],
+): string | null {
+  if (installed.length === 0) return null
+  const names = new Set(installed)
+  const probed = plugin.install?.pkgName
+  if (probed !== undefined && probed.length > 0 && names.has(probed)) return probed
+  return names.has(plugin.name) ? plugin.name : null
+}
+
+/**
  * Whether a plugin row is already installed (module-name match against the
  * Host inventory).
  * @param plugin - the plugin row.
@@ -14,9 +33,7 @@ import type { MarketPluginSummary } from './types.ts'
  * @returns whether the package or probed npm name is installed.
  */
 export function isInstalled(plugin: MarketPluginSummary, installed: readonly string[]): boolean {
-  if (installed.length === 0) return false
-  const names = new Set(installed)
-  return names.has(plugin.name) || (plugin.install?.pkgName !== undefined && names.has(plugin.install.pkgName))
+  return installedName(plugin, installed) !== null
 }
 
 /**
@@ -36,21 +53,36 @@ export function installSpec(plugin: MarketPluginSummary): string | null {
   return match?.[1] ?? null
 }
 
-/** Resolve the installed dependency name used by `dsh plugin remove`. */
-export function uninstallSpec(plugin: MarketPluginSummary): string | null {
+/**
+ * Resolve the installed dependency name used by `dsh plugin remove`: the name
+ * the Host inventory actually reports, falling back to the probed npm name.
+ * @param plugin - the plugin row.
+ * @param installed - installed module names from the Host inventory remote.
+ * @returns the dependency name to remove, or null.
+ */
+export function uninstallSpec(
+  plugin: MarketPluginSummary,
+  installed: readonly string[] = [],
+): string | null {
+  const matched = installedName(plugin, installed)
+  if (matched !== null) return matched
   const name = plugin.install?.pkgName
   return name === undefined || name.length === 0 ? null : name
 }
 
 /**
  * Derive the uninstall command from the documented install command: same
- * invocation with `add` replaced by `remove`. Null when no install command
- * exists.
+ * invocation with `add` replaced by `remove`. Null when no dependency name is
+ * known.
  * @param plugin - the plugin row.
+ * @param installed - installed module names from the Host inventory remote.
  * @returns the uninstall command, or null.
  */
-export function uninstallCommand(plugin: MarketPluginSummary): string | null {
-  const spec = uninstallSpec(plugin)
+export function uninstallCommand(
+  plugin: MarketPluginSummary,
+  installed: readonly string[] = [],
+): string | null {
+  const spec = uninstallSpec(plugin, installed)
   return spec === null ? null : `dsh plugin --profile web remove ${spec}`
 }
 

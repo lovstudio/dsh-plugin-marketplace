@@ -64,10 +64,10 @@ export function MarketplaceDetail({
   const installedFlag = detail !== null && isInstalled(detail, installed)
   const command = detail === null
     ? null
-    : installedFlag ? uninstallCommand(detail) : installCommand(detail)
+    : installedFlag ? uninstallCommand(detail, installed) : installCommand(detail)
   const spec = detail === null
     ? null
-    : installedFlag ? uninstallSpec(detail) : installSpec(detail)
+    : installedFlag ? uninstallSpec(detail, installed) : installSpec(detail)
   const ownAction = action !== null && detail !== null && action.fullName === detail.fullName ? action : null
   const running = ownAction?.status === 'running'
   const agentCopy = useMarketCopyFeedback(detail === null ? '' : pluginAgentMarkdown(detail, locale))
