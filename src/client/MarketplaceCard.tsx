@@ -31,6 +31,8 @@ export interface MarketplaceCardProps {
   locale: 'zh' | 'en'
   /** Latest package operation, or null. */
   action: MarketInstallAction | null
+  /** `manual` when the launcher exposes no in-place restart. */
+  restartMode: 'service' | 'manual'
   /** Whether the GitHub credential can read and write stars. */
   canStar: boolean
   /** Whether the authenticated GitHub user stars this repository. */
@@ -60,7 +62,7 @@ function badgeLabel(t: MarketplaceCardProps['t'], plugin: MarketPluginSummary): 
 
 /** Render one marketplace card. */
 export function MarketplaceCard({
-  plugin, installed, locale, action, canStar, starred, starBusy, onToggleStar,
+  plugin, installed, locale, action, restartMode, canStar, starred, starBusy, onToggleStar,
   onInstall, onUninstall, onRestart, onDismissAction, onDetails, onOpenRepository, t,
 }: MarketplaceCardProps): ReactNode {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -167,6 +169,7 @@ export function MarketplaceCard({
       {ownAction !== null && ownAction.status !== 'running' ? (
         <ActionBanner
           action={ownAction}
+          restartMode={restartMode}
           onRestart={onRestart}
           onDismissAction={onDismissAction}
           t={t}

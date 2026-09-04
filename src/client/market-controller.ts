@@ -15,7 +15,7 @@ import {
   createMarketViewState, MARKET_PAGE_SIZE, type MarketInstallAction, type MarketViewState,
 } from './market-store.ts'
 import type { GitHubMarketPackageResult } from '@lovstudio/dsh-plugin-marketplace/host'
-import type { PluginActionOutcome } from './plugin-actions.ts'
+import { pluginActionSession, type PluginActionOutcome } from './plugin-actions.ts'
 import type { MarketFilters, MarketOrder, MarketRequest, MarketSort } from './types.ts'
 
 /** How often an open restart confirmation refreshes Agent activity. */
@@ -388,8 +388,10 @@ export class MarketController {
     } catch (reason: unknown) {
       this.store.update((state) => {
         const detail = reason instanceof Error ? reason.message : String(reason)
+        // A restart refused with no banner on screen would look like a dead
+        // button, so raise one instead of dropping the failure.
         state.action = state.action === null
-          ? null
+          ? { kind: 'install', fullName: '', status: 'error', message: 'restart-failed', detail }
           : { ...state.action, status: 'error', message: 'restart-failed', detail }
       })
     }
@@ -473,6 +475,12 @@ export class MarketController {
   /** Clear the latest star failure. */
   dismissStarError(): void {
     this.store.update((state) => { state.starError = null })
+  }
+
+  /** Learn whether this launcher can restart itself, before offering to. */
+  async refreshRestartMode(): Promise<void> {
+    const { restart } = await pluginActionSession()
+    this.store.update((state) => { state.restartMode = restart })
   }
 
   /** Refresh the installed module-name set from the Host inventory remote. */

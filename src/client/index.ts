@@ -204,10 +204,12 @@ function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
     'ui-plugin-market: startup synchronization preference',
   )
   void controller.refreshInstalled()
+  void controller.refreshRestartMode()
   ctx.effect(
     () => ctx.on('connection/reset', () => {
       resetPluginActionToken()
       void controller.refreshInstalled()
+      void controller.refreshRestartMode()
     }),
     'ui-plugin-market: installed-name refresh',
   )

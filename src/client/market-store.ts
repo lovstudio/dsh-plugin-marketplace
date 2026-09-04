@@ -100,6 +100,8 @@ export interface MarketViewState {
   restartActivity: { running: boolean; active: number } | null
   /** Whether the activity read failed. */
   restartStatusUnavailable: boolean
+  /** `manual` when the launcher exposes no in-place restart service. */
+  restartMode: 'service' | 'manual'
 }
 
 /**
@@ -137,5 +139,6 @@ export function createMarketViewState(): MarketViewState {
     restartConfirm: false,
     restartActivity: null,
     restartStatusUnavailable: false,
+    restartMode: 'service',
   }
 }

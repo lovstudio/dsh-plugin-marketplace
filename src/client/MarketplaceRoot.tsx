@@ -510,6 +510,7 @@ export function MarketplaceRoot({ controller, useView, locale, t }: MarketplaceR
             installed={view.installed}
             locale={locale}
             action={view.action}
+            restartMode={view.restartMode}
             canStar={view.starSupported}
             starred={view.starred.some(name => name.toLocaleLowerCase() === plugin.fullName.toLocaleLowerCase())}
             starBusy={view.starBusy.includes(plugin.fullName)}
@@ -573,6 +574,7 @@ export function MarketplaceRoot({ controller, useView, locale, t }: MarketplaceR
           locale={locale}
           installed={view.installed}
           action={view.action}
+          restartMode={view.restartMode}
           canStar={view.starSupported}
           starred={view.detail !== null
             && view.starred.some(name => name.toLocaleLowerCase() === view.detail?.fullName.toLocaleLowerCase())}

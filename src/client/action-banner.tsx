@@ -34,25 +34,36 @@ function errorCopyText(action: MarketInstallAction): string {
 
 /** Render one settled package action and its next step. */
 export function ActionBanner({
-  action, onRestart, onDismissAction, t, css,
+  action, restartMode, onRestart, onDismissAction, t, css,
 }: {
   action: MarketInstallAction
+  /** `manual` when the launcher exposes no in-place restart. */
+  restartMode: 'service' | 'manual'
   onRestart: () => void
   onDismissAction: () => void
   t: PropsLocale<'pluginMarket'>['t']
   css: Record<string, string>
 }): ReactNode {
   const errorCopy = useMarketCopyFeedback(errorCopyText(action))
+  const hintCopy = useMarketCopyFeedback(t('restartManualHint'))
   const success = action.status === 'ok'
+  const manual = success && restartMode === 'manual'
   const text = success
-    ? action.kind === 'install' ? t('installSuccess') : t('uninstallSuccess')
+    ? manual
+      ? action.kind === 'install' ? t('installSuccessManual') : t('uninstallSuccessManual')
+      : action.kind === 'install' ? t('installSuccess') : t('uninstallSuccess')
     : action.message === 'not-installable'
       ? t('notInstallable')
       : action.message === 'restart-failed' ? t('restartFailed') : t('actionFailed')
   return (
     <div className={css.actionBanner} data-tone={success ? 'ok' : 'error'} role="status">
       <span className={css.actionText}>{text}</span>
-      {success ? (
+      {manual ? (
+        <button type="button" className={css.action} onClick={hintCopy.onCopy} title={t('restartManualHint')}>
+          <IconCopyOutline16 size={14} />
+          {hintCopy.copied ? t('copied') : t('copyRestartHint')}
+        </button>
+      ) : success ? (
         <button type="button" className={css.action} onClick={onRestart}>{t('restart')}</button>
       ) : (
         <button type="button" className={css.action} onClick={errorCopy.onCopy} aria-label={t('copyError')}>
@@ -61,6 +72,7 @@ export function ActionBanner({
         </button>
       )}
       <button type="button" className={css.action} onClick={onDismissAction}>{t('dismiss')}</button>
+      {manual ? <code className={css.errorDetail}>{t('restartManualHint')}</code> : null}
       {action.detail === undefined || action.detail === '' ? null : (
         <code className={css.errorDetail}>{action.detail}</code>
       )}

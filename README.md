@@ -20,14 +20,14 @@ Prerequisites: Node.js 22.19+ or 24+, pnpm 11 (`corepack enable` or `npm i -g pn
 ```sh
 git clone --depth 1 --branch dsh-v0.1.2-rc.1 https://github.com/deepseek-ai/deepseek-harness.git
 cd deepseek-harness && pnpm install && pnpm run build
-pnpm dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.8
+pnpm dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.9
 pnpm dsh web
 ```
 
 **Without a checkout (npx; compiled harness only):**
 
 ```sh
-npx @deepseek-ai/dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.8
+npx @deepseek-ai/dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.9
 npx @deepseek-ai/dsh web
 ```
 

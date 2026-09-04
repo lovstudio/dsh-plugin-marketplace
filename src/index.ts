@@ -153,7 +153,10 @@ export function apply(ctx: Context): void {
           writeJson(res, 405, { error: 'method not allowed' })
           return
         }
-        writeJson(res, 200, { token })
+        // Launchers without `appRestart` cannot reboot themselves, so the
+        // client must offer manual instructions instead of a dead button.
+        const restart = ctx.get('appRestart') === undefined ? 'manual' : 'service'
+        writeJson(res, 200, { token, restart })
       },
     })
     const removeAction = webServer.register({

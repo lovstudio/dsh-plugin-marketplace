@@ -31,6 +31,8 @@ export interface MarketplaceDetailProps {
   /** Installed module names (uninstall action availability). */
   installed: readonly string[]
   action: MarketInstallAction | null
+  /** `manual` when the launcher exposes no in-place restart. */
+  restartMode: 'service' | 'manual'
   /** Whether the GitHub credential can read and write stars. */
   canStar: boolean
   /** Whether the authenticated GitHub user stars this repository. */
@@ -58,7 +60,7 @@ function localizedOf(detail: MarketDetailInfo, locale: 'zh' | 'en'): { intro?: s
 
 /** Render the detail dialog. */
 export function MarketplaceDetail({
-  detail, status, locale, installed, action, canStar, starred, starBusy, onToggleStar,
+  detail, status, locale, installed, action, restartMode, canStar, starred, starBusy, onToggleStar,
   onInstall, onUninstall, onRestart, onDismissAction, onClose, onRetry, onOpenRepository, t,
 }: MarketplaceDetailProps): ReactNode {
   useEffect(() => {
@@ -229,6 +231,7 @@ export function MarketplaceDetail({
             </div>
             {ownAction !== null && ownAction.status !== 'running' ? (
               <ActionBanner
+                restartMode={restartMode}
                 action={ownAction}
                 onRestart={onRestart}
                 onDismissAction={onDismissAction}

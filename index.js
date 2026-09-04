@@ -138,7 +138,11 @@ function apply(ctx) {
 					writeJson(res, 405, { error: "method not allowed" });
 					return;
 				}
-				writeJson(res, 200, { token });
+				const restart = ctx.get("appRestart") === void 0 ? "manual" : "service";
+				writeJson(res, 200, {
+					token,
+					restart
+				});
 			}
 		});
 		const removeAction = webServer.register({
