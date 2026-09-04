@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.11 - 2026-09-05
+
+- Hot-mount plugins whose bundle patch carries a `!!js` expression, such as `dsh-better-sidebar`. Those values are parsed in the launcher's own entry-list dialect and handed to the Loader untouched, which evaluates them the same way it does at boot — 0.1.10 rejected the whole package instead and asked for a restart.
+- Keep the entry id a package declares, unless the running tree already uses it. A double-mount guard written against that id ("another enabled entry with my name but not my id") recursed into itself under a generated id and exhausted the stack.
+- Say why a change still needs a restart. The reason reaches the banner and the copied hint instead of only the log, so a fallback is no longer indistinguishable from the feature failing.
+
 ## 0.1.10 - 2026-09-05
 
 - Run a freshly installed plugin immediately, without rebooting the launcher. `dsh plugin add` only registers the package in the profile manifest, and that layer is read once at boot; the marketplace now creates the same entries in the running Loader, so the banner asks for a page reload instead of a restart. Nothing reaches disk — the next boot mounts the package from its bundle layer as usual — and a package whose bundle patch cannot be reproduced at runtime falls back to the previous restart hint.

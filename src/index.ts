@@ -64,6 +64,8 @@ interface PluginActionResult {
   error?: string
   /** True when the change already took effect without rebooting the launcher. */
   hotMounted?: boolean
+  /** Why a restart is still needed, when the change could not be mounted live. */
+  hotMountNote?: string
 }
 
 interface CompatibilityRequest {
@@ -263,20 +265,37 @@ function runPluginAction(
 
 /**
  * Reflect one settled package change in the running Loader tree.
- * @returns true when every changed package took effect without a reboot.
+ * @returns whether every changed package took effect, and why it did not.
  */
-async function applyHotMount(ctx: Context, before: readonly string[]): Promise<boolean> {
+async function applyHotMount(
+  ctx: Context,
+  before: readonly string[],
+): Promise<{ hotMounted: boolean; note?: string }> {
   const loader = ctx.get('loader') as LoaderLike | undefined
   const dir = resolveProfileDir(activeProfile())
   const { added, removed } = bundleDelta(before, readBundles(dir))
-  if (loader === undefined || added.length + removed.length === 0) return false
+  if (added.length + removed.length === 0) return { hotMounted: false }
+  if (loader === undefined) return { hotMounted: false, note: 'no loader service in this launcher' }
   const logger = (ctx.root as { logger?: (name: string) => { warn: (message: string) => void } })
     .logger?.('plugin-market')
-  const warn = (reason: string): void => { logger?.warn(`hot mount skipped — ${reason}`) }
+  // The reason travels to the browser as well as the log: a fallback to
+  // "restart the launcher" is otherwise indistinguishable from a bug.
+  const notes: string[] = []
+  const warn = (reason: string): void => {
+    notes.push(reason)
+    logger?.warn(`hot mount skipped — ${reason}`)
+  }
   const results: boolean[] = []
-  for (const pkg of removed) results.push(await hotUnmount(loader, pkg))
+  for (const pkg of removed) {
+    const dropped = await hotUnmount(loader, pkg)
+    if (!dropped) warn(`${pkg}: this launcher mounted it at boot, so only a restart drops it`)
+    results.push(dropped)
+  }
   for (const pkg of added) results.push(await hotMount(loader, dir, pkg, warn))
-  return results.every(Boolean)
+  return {
+    hotMounted: results.every(Boolean),
+    ...notes.length === 0 ? {} : { note: notes.join('; ') },
+  }
 }
 
 /** Register Marketplace settings and its authenticated package-action routes. */
@@ -334,7 +353,9 @@ export function apply(ctx: Context): void {
           const before = readBundles(resolveProfileDir(activeProfile()))
           const result = await runPluginAction(request.action, spec, (next) => { child = next })
           if (result.ok) {
-            result.hotMounted = await applyHotMount(ctx, before)
+            const live = await applyHotMount(ctx, before)
+            result.hotMounted = live.hotMounted
+            if (live.note !== undefined) result.hotMountNote = live.note
           }
           writeJson(res, 200, result)
         } finally {

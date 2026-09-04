@@ -5,7 +5,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import satisfies from "semver/functions/satisfies.js";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { JSON_SCHEMA, load } from "js-yaml";
+import { JSON_SCHEMA, Type, load } from "js-yaml";
 import z from "@deepseek-ai/schemastery";
 //#region lib/types/hot-mount.js
 /**
@@ -17,10 +17,32 @@ import z from "@deepseek-ai/schemastery";
 * runtime instead. They are created in the Loader root — a sibling of the boot
 * include, not a member of it — because the include re-applies every bundle
 * patch on each reload, and an entry living inside it would be inserted a
-* second time and abort the tree with a duplicate id. `Loader.write` is a
-* no-op, so nothing reaches disk and the next boot mounts the package from its
-* bundle layer exactly as if it had never run.
+* second time and abort the tree with a duplicate id. The package's declared
+* entry id is still kept when the tree does not already use it, because a
+* bundle patch may guard against double-mounting by naming that id.
+* `Loader.write` is a no-op, so nothing reaches disk and the next boot mounts
+* the package from its bundle layer exactly as if it had never run.
 */
+/**
+* The entry-list dialect the launcher parses bundle patches with. A `!!js`
+* scalar becomes the expression node the Loader evaluates itself — lazily for
+* `disabled`, at apply time for config — so these values pass through this
+* module untouched instead of disqualifying the package.
+*/
+const entryListSchema = JSON_SCHEMA.extend(new Type("tag:yaml.org,2002:js", {
+	kind: "scalar",
+	resolve: (data) => typeof data === "string",
+	construct: (data) => ({ __jsExpr: data })
+}));
+/** Entry ids the running tree already uses. */
+function takenIds(loader) {
+	const ids = /* @__PURE__ */ new Set();
+	for (const entry of loader.entries?.() ?? []) {
+		const id = entry.options?.id;
+		if (typeof id === "string") ids.add(id);
+	}
+	return ids;
+}
 /** Directory of one profile, resolved the way the launcher resolves its home. */
 function resolveProfileDir(profile) {
 	const configured = process.env.DSH_HOME;
@@ -52,7 +74,7 @@ function bundlePatch(profileDir, pkg) {
 	try {
 		const declared = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")).dsh?.bundle?.patch;
 		if (typeof declared !== "string" || declared.length === 0) return null;
-		const parsed = load(readFileSync(join(packageDir, declared), "utf8"), { schema: JSON_SCHEMA });
+		const parsed = load(readFileSync(join(packageDir, declared), "utf8"), { schema: entryListSchema });
 		return Array.isArray(parsed) ? parsed : null;
 	} catch {
 		return null;
@@ -74,12 +96,9 @@ function bundleEntries(profileDir, pkg) {
 		if (id !== void 0 || !Array.isArray(insert) || Object.keys(rest).length > 0) return null;
 		for (const item of insert) {
 			if (item === null || typeof item !== "object") return null;
-			const entry = item;
-			if (typeof entry.name !== "string" || entry.name.length === 0 || entry.group === true) return null;
-			entries.push(entry.config === void 0 ? { name: entry.name } : {
-				name: entry.name,
-				config: entry.config
-			});
+			const options = item;
+			if (typeof options.name !== "string" || options.name.length === 0 || options.group === true) return null;
+			entries.push(options);
 		}
 	}
 	return entries.length === 0 ? null : entries;
@@ -98,8 +117,14 @@ async function hotMount(loader, profileDir, pkg, warn = () => {}) {
 		return false;
 	}
 	const ids = [];
+	const taken = takenIds(loader);
 	try {
-		for (const entry of entries) ids.push(await loader.create(entry));
+		for (const entry of entries) {
+			const { id, ...rest } = entry;
+			const options = typeof id === "string" && !taken.has(id) ? entry : rest;
+			if (typeof id === "string") taken.add(id);
+			ids.push(await loader.create(options));
+		}
 	} catch (error) {
 		for (const id of ids.reverse()) await loader.remove(id).catch(() => {});
 		warn(`${pkg}: ${error instanceof Error ? error.message : String(error)}`);
@@ -333,21 +358,34 @@ function runPluginAction(action, spec, setChild) {
 }
 /**
 * Reflect one settled package change in the running Loader tree.
-* @returns true when every changed package took effect without a reboot.
+* @returns whether every changed package took effect, and why it did not.
 */
 async function applyHotMount(ctx, before) {
 	const loader = ctx.get("loader");
 	const dir = resolveProfileDir(activeProfile());
 	const { added, removed } = bundleDelta(before, readBundles(dir));
-	if (loader === void 0 || added.length + removed.length === 0) return false;
+	if (added.length + removed.length === 0) return { hotMounted: false };
+	if (loader === void 0) return {
+		hotMounted: false,
+		note: "no loader service in this launcher"
+	};
 	const logger = ctx.root.logger?.("plugin-market");
+	const notes = [];
 	const warn = (reason) => {
+		notes.push(reason);
 		logger?.warn(`hot mount skipped — ${reason}`);
 	};
 	const results = [];
-	for (const pkg of removed) results.push(await hotUnmount(loader, pkg));
+	for (const pkg of removed) {
+		const dropped = await hotUnmount(loader, pkg);
+		if (!dropped) warn(`${pkg}: this launcher mounted it at boot, so only a restart drops it`);
+		results.push(dropped);
+	}
 	for (const pkg of added) results.push(await hotMount(loader, dir, pkg, warn));
-	return results.every(Boolean);
+	return {
+		hotMounted: results.every(Boolean),
+		...notes.length === 0 ? {} : { note: notes.join("; ") }
+	};
 }
 /** Register Marketplace settings and its authenticated package-action routes. */
 function apply(ctx) {
@@ -404,7 +442,11 @@ function apply(ctx) {
 					const result = await runPluginAction(request.action, spec, (next) => {
 						child = next;
 					});
-					if (result.ok) result.hotMounted = await applyHotMount(ctx, before);
+					if (result.ok) {
+						const live = await applyHotMount(ctx, before);
+						result.hotMounted = live.hotMounted;
+						if (live.note !== void 0) result.hotMountNote = live.note;
+					}
 					writeJson(res, 200, result);
 				} finally {
 					running = false;

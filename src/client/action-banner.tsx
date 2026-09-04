@@ -45,7 +45,11 @@ export function ActionBanner({
   css: Record<string, string>
 }): ReactNode {
   const errorCopy = useMarketCopyFeedback(errorCopyText(action))
-  const hintCopy = useMarketCopyFeedback(t('restartManualHint'))
+  // The restart reason rides along with the hint, so a pasted report says why
+  // the change could not take effect live.
+  const hintCopy = useMarketCopyFeedback(
+    action.detail === undefined ? t('restartManualHint') : `${t('restartManualHint')}\n${action.detail}`,
+  )
   const success = action.status === 'ok'
   // A hot-mounted change already took effect in the tree, so the only thing
   // still stale is this page's client bundle.

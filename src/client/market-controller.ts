@@ -338,6 +338,11 @@ export class MarketController {
           }
           if (!result.ok && result.error !== undefined) action.detail = result.error
           if (result.hotMounted === true) action.hotMounted = true
+          // Why a successful install still wants a restart belongs on the banner:
+          // otherwise the fallback is indistinguishable from the feature failing.
+          if (result.ok && result.hotMounted !== true && result.hotMountNote !== undefined) {
+            action.detail = result.hotMountNote
+          }
           state.action = action
         })
         // The inventory decides the installed badge and the uninstall spec.

@@ -8,6 +8,8 @@ export interface PluginActionOutcome {
   error?: string
   /** True when the Host already mounted the package without a reboot. */
   hotMounted?: boolean
+  /** Why the Host could not mount it live, when it could not. */
+  hotMountNote?: string
 }
 
 /** One harness package whose installed version violates a declared peer range. */
@@ -116,5 +118,6 @@ export async function runPluginAction(
     command: body.command,
     ...typeof body.error === 'string' ? { error: body.error } : {},
     ...body.hotMounted === true ? { hotMounted: true } : {},
+    ...typeof body.hotMountNote === 'string' ? { hotMountNote: body.hotMountNote } : {},
   }
 }
