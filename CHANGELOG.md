@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.10 - 2026-09-05
+
+- Run a freshly installed plugin immediately, without rebooting the launcher. `dsh plugin add` only registers the package in the profile manifest, and that layer is read once at boot; the marketplace now creates the same entries in the running Loader, so the banner asks for a page reload instead of a restart. Nothing reaches disk — the next boot mounts the package from its bundle layer as usual — and a package whose bundle patch cannot be reproduced at runtime falls back to the previous restart hint.
+- Warn before installing a plugin the harness cannot load. A plugin that pins a stale `@deepseek-ai/*` range fails at ESM link time and takes down every other plugin with it; pnpm only ever reports it as a benign-looking missing peer, because the harness ships those packages beside the launcher instead of in the profile.
+
 ## 0.1.7 - 2026-09-05
 
 - Show that an install is working: the action button spins and counts the seconds it has been running, because the `dsh plugin` CLI reports nothing until it exits.
