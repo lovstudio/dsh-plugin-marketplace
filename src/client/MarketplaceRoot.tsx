@@ -349,6 +349,7 @@ export function MarketplaceRoot({ controller, useView, locale, t }: MarketplaceR
     total: String(view.total),
   })
   const listCopy = useMarketCopyFeedback(listAgentMarkdown(visibleItems, view.total, view.search, locale))
+  const starErrorCopy = useMarketCopyFeedback(view.starError ?? '')
 
   useEffect(() => { controller.ensureLoaded() }, [controller])
 
@@ -478,6 +479,29 @@ export function MarketplaceRoot({ controller, useView, locale, t }: MarketplaceR
         </button>
       </div>
 
+      {view.starError === null ? null : (
+        <div className={css.starError} role="status">
+          <span className={css.starErrorText}>{t('starFailed')}</span>
+          <button
+            type="button"
+            className={css.action}
+            onClick={starErrorCopy.onCopy}
+            aria-label={t('copyError')}
+          >
+            <IconCopyOutline16 size={14} />
+            {starErrorCopy.copied ? t('copied') : t('copyError')}
+          </button>
+          <button
+            type="button"
+            className={css.action}
+            onClick={() => { controller.dismissStarError() }}
+          >
+            {t('dismiss')}
+          </button>
+          <code className={css.starErrorDetail}>{view.starError}</code>
+        </div>
+      )}
+
       <div className={css.list}>
         {visibleItems.map(plugin => (
           <MarketplaceCard
@@ -486,6 +510,10 @@ export function MarketplaceRoot({ controller, useView, locale, t }: MarketplaceR
             installed={view.installed}
             locale={locale}
             action={view.action}
+            canStar={view.starSupported}
+            starred={view.starred.some(name => name.toLocaleLowerCase() === plugin.fullName.toLocaleLowerCase())}
+            starBusy={view.starBusy.includes(plugin.fullName)}
+            onToggleStar={(fullName) => { controller.toggleStar(fullName) }}
             onInstall={(fullName) => { controller.install(fullName) }}
             onUninstall={(fullName) => { controller.uninstall(fullName) }}
             onRestart={() => { void controller.restart() }}
@@ -545,6 +573,11 @@ export function MarketplaceRoot({ controller, useView, locale, t }: MarketplaceR
           locale={locale}
           installed={view.installed}
           action={view.action}
+          canStar={view.starSupported}
+          starred={view.detail !== null
+            && view.starred.some(name => name.toLocaleLowerCase() === view.detail?.fullName.toLocaleLowerCase())}
+          starBusy={view.detail !== null && view.starBusy.includes(view.detail.fullName)}
+          onToggleStar={(fullName) => { controller.toggleStar(fullName) }}
           onInstall={(fullName) => { controller.install(fullName) }}
           onUninstall={(fullName) => { controller.uninstall(fullName) }}
           onRestart={() => { void controller.restart() }}

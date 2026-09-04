@@ -4,13 +4,15 @@
  * install/uninstall, and open repository).
  */
 
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
-  IconCopyOutline16, IconDownloadOutline16, IconListPenOutline16, IconRightUpOutline14,
-  IconTrashOutline16,
+  IconCopyOutline16, IconDownloadOutline16, IconEllipsisOutline16, IconListPenOutline16,
+  IconRightUpOutline14, IconTrashOutline16, Menu, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import clsx from 'clsx'
 import { ActionBanner, runningLabel } from './action-banner.tsx'
+import { IconStarFill16, IconStarOutline16 } from './icons.tsx'
 import { useMarketCopyFeedback } from './copy-feedback.ts'
 import { installSpec, isInstalled, pluginAgentMarkdown, uninstallSpec } from './agent-copy.ts'
 import type { MarketInstallAction } from './market-store.ts'
@@ -27,6 +29,13 @@ export interface MarketplaceCardProps {
   locale: 'zh' | 'en'
   /** Latest package operation, or null. */
   action: MarketInstallAction | null
+  /** Whether the GitHub credential can read and write stars. */
+  canStar: boolean
+  /** Whether the authenticated GitHub user stars this repository. */
+  starred: boolean
+  /** Whether a star change is in flight for this repository. */
+  starBusy: boolean
+  onToggleStar: (fullName: string) => void
   onInstall: (fullName: string) => void
   onUninstall: (fullName: string) => void
   onRestart: () => void
@@ -49,9 +58,10 @@ function badgeLabel(t: MarketplaceCardProps['t'], plugin: MarketPluginSummary): 
 
 /** Render one marketplace card. */
 export function MarketplaceCard({
-  plugin, installed, locale, action, onInstall, onUninstall, onRestart,
-  onDismissAction, onDetails, onOpenRepository, t,
+  plugin, installed, locale, action, canStar, starred, starBusy, onToggleStar,
+  onInstall, onUninstall, onRestart, onDismissAction, onDetails, onOpenRepository, t,
 }: MarketplaceCardProps): ReactNode {
+  const [menuOpen, setMenuOpen] = useState(false)
   const idCopy = useMarketCopyFeedback(plugin.fullName)
   const agentCopy = useMarketCopyFeedback(pluginAgentMarkdown(plugin, locale))
   const badge = badgeLabel(t, plugin)
@@ -59,6 +69,21 @@ export function MarketplaceCard({
   const spec = installedFlag ? uninstallSpec(plugin, installed) : installSpec(plugin)
   const ownAction = action !== null && action.fullName === plugin.fullName ? action : null
   const running = ownAction?.status === 'running'
+  // Everything that is not install or star lives behind the overflow menu, so
+  // one row keeps its shape as the action set grows.
+  const menuItems: readonly MenuEntry[] = [
+    { id: 'details', label: t('details'), icon: <IconListPenOutline16 size={14} /> },
+    { id: 'copyId', label: idCopy.copied ? t('copied') : t('copyId'), icon: <IconCopyOutline16 size={14} /> },
+    { id: 'copyAgent', label: agentCopy.copied ? t('copied') : t('copyAgent'), icon: <IconCopyOutline16 size={14} /> },
+    { id: 'openRepo', label: t('openRepo'), icon: <IconRightUpOutline14 size={12} /> },
+  ]
+  const onMenuSelect = (id: string): void => {
+    setMenuOpen(false)
+    if (id === 'details') onDetails(plugin.fullName)
+    else if (id === 'copyId') idCopy.onCopy()
+    else if (id === 'copyAgent') agentCopy.onCopy()
+    else if (id === 'openRepo') onOpenRepository(plugin.repositoryUrl)
+  }
 
   return (
     <article className={css.card}>
@@ -90,28 +115,18 @@ export function MarketplaceCard({
         )}
       </button>
       <div className={css.actions}>
-        <button type="button" className={css.action} onClick={() => { onDetails(plugin.fullName) }}>
-          <IconListPenOutline16 size={14} />
-          {t('details')}
-        </button>
-        <button
-          type="button"
-          className={css.action}
-          onClick={idCopy.onCopy}
-          aria-label={t('copyId')}
-        >
-          <IconCopyOutline16 size={14} />
-          {idCopy.copied ? t('copied') : t('copyId')}
-        </button>
-        <button
-          type="button"
-          className={css.action}
-          onClick={agentCopy.onCopy}
-          aria-label={t('copyAgent')}
-        >
-          <IconCopyOutline16 size={14} />
-          {agentCopy.copied ? t('copied') : t('copyAgent')}
-        </button>
+        {canStar ? (
+          <button
+            type="button"
+            className={clsx(css.action, starred && css.actionOn)}
+            disabled={starBusy}
+            aria-pressed={starred}
+            onClick={() => { onToggleStar(plugin.fullName) }}
+          >
+            {starred ? <IconStarFill16 size={14} /> : <IconStarOutline16 size={14} />}
+            {starred ? t('starred') : t('star')}
+          </button>
+        ) : null}
         <button
           type="button"
           className={css.action}
@@ -124,15 +139,25 @@ export function MarketplaceCard({
             ? runningLabel(ownAction, t)
             : installedFlag ? t('uninstall') : t('install')}
         </button>
-        <button
-          type="button"
-          className={css.action}
-          onClick={() => { onOpenRepository(plugin.repositoryUrl) }}
-          aria-label={t('openRepo')}
-        >
-          <IconRightUpOutline14 size={12} />
-          {t('openRepo')}
-        </button>
+        <Menu
+          open={menuOpen}
+          anchor={(
+            <button
+              type="button"
+              className={css.action}
+              aria-label={t('moreActions')}
+              onClick={() => { setMenuOpen(open => !open) }}
+            >
+              <IconEllipsisOutline16 size={14} />
+            </button>
+          )}
+          items={menuItems}
+          onSelect={onMenuSelect}
+          onClose={() => { setMenuOpen(false) }}
+          align="end"
+          portal
+          compact
+        />
       </div>
       {ownAction !== null && ownAction.status !== 'running' ? (
         <ActionBanner

@@ -3,16 +3,22 @@ import type {
   RemoteResult,
   TypertRemoteContribution,
 } from '@deepseek-ai/dsh-typert-protocol'
-import type { GitHubMarketCredentialProbeRequest, GitHubMarketCredentialProbeResult, GitHubMarketSearchPage, GitHubMarketSearchRequest } from '@lovstudio/dsh-plugin-marketplace/types'
+import type { GitHubMarketCredentialProbeRequest, GitHubMarketCredentialProbeResult, GitHubMarketPackageRequest, GitHubMarketPackageResult, GitHubMarketSearchPage, GitHubMarketSearchRequest, GitHubMarketStarredResult, GitHubMarketStarRequest } from '@lovstudio/dsh-plugin-marketplace/host'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$706c7567696e4d61726b6574476974687562 {
+    listStarred: () => Promise<RemoteResult<GitHubMarketStarredResult>>
     probeCredential: (request: GitHubMarketCredentialProbeRequest) => Promise<RemoteResult<GitHubMarketCredentialProbeResult>>
+    resolvePackage: (request: GitHubMarketPackageRequest) => Promise<RemoteResult<GitHubMarketPackageResult>>
     search: (request: GitHubMarketSearchRequest) => Promise<RemoteResult<GitHubMarketSearchPage>>
+    setStar: (request: GitHubMarketStarRequest) => Promise<RemoteResult<{ fullName: string; starred: boolean; }>>
   }
   interface TypertRemoteMap {
+    'pluginMarketGithub/listStarred': () => Promise<RemoteResult<GitHubMarketStarredResult>>
     'pluginMarketGithub/probeCredential': (request: GitHubMarketCredentialProbeRequest) => Promise<RemoteResult<GitHubMarketCredentialProbeResult>>
+    'pluginMarketGithub/resolvePackage': (request: GitHubMarketPackageRequest) => Promise<RemoteResult<GitHubMarketPackageResult>>
     'pluginMarketGithub/search': (request: GitHubMarketSearchRequest) => Promise<RemoteResult<GitHubMarketSearchPage>>
+    'pluginMarketGithub/setStar': (request: GitHubMarketStarRequest) => Promise<RemoteResult<{ fullName: string; starred: boolean; }>>
   }
   interface TypertRemoteNamespaceMap {
     'pluginMarketGithub': TypertRemoteNamespace$706c7567696e4d61726b6574476974687562

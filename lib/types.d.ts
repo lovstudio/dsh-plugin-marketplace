@@ -59,4 +59,41 @@ export interface GitHubMarketCredentialProbeResult {
     readonly login: string;
     /** Remaining core REST requests reported by GitHub. */
     readonly rateLimitRemaining: number;
+    /** Classic-token scopes; empty for a fine-grained token, which lists none. */
+    readonly scopes: readonly string[];
+    /**
+     * Whether the token may star repositories: a classic token needs `repo` or
+     * `public_repo`, and a fine-grained token needs the `Starring` user
+     * permission, which GitHub does not report — so it reads as capable until a
+     * star attempt says otherwise.
+     */
+    readonly canStar: boolean;
+}
+/** One repository whose npm identity the marketplace resolves before install. */
+export interface GitHubMarketPackageRequest {
+    /** `owner/repository`. */
+    readonly fullName: string;
+}
+/** The npm identity a repository declares, when it declares one. */
+export interface GitHubMarketPackageResult {
+    /** Package name from the repository manifest. */
+    readonly pkgName?: string;
+    /** Package version from the repository manifest. */
+    readonly pkgVersion?: string;
+    /** Whether the npm registry serves that name. */
+    readonly npmPublished: boolean;
+}
+/** One star change requested for the authenticated user. */
+export interface GitHubMarketStarRequest {
+    /** `owner/repository`. */
+    readonly fullName: string;
+    /** Target state: starred or not. */
+    readonly starred: boolean;
+}
+/** The repositories the authenticated user has starred. */
+export interface GitHubMarketStarredResult {
+    /** `owner/repository` of every starred repository read. */
+    readonly fullNames: readonly string[];
+    /** Whether GitHub still had pages left when the read stopped. */
+    readonly truncated: boolean;
 }

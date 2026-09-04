@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.6 - 2026-09-05
+
+- Pass `-w` to every `dsh plugin` action: a profile directory is its own pnpm workspace root, which pnpm refuses to change without it (`ERR_PNPM_ADDING_TO_ROOT`).
+- Install the published npm package when the repository's manifest names one npm serves, instead of the `github:owner/repo` spec. A git-hosted spec makes pnpm run the package's `prepare` build, which it refuses until that exact build key is allowlisted (`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`).
+- Star and unstar repositories as the authenticated GitHub user, from the card and the detail dialog. Reading and writing stars go through the Host gateway, so the token stays out of the browser; the actions stay hidden unless the credential can star, and the settings card's **Test** now names the scope a token is missing (`public_repo` for classic, `Starring` write for fine-grained).
+- Move details, copy id, copy for agent, and open repository into an overflow menu, keeping star and install as the row's visible actions.
+- Match installed plugins case-insensitively, so a repository named `DSH-better-sidebar` recognizes the installed `dsh-better-sidebar`.
+- Refresh the installed inventory after a successful install or uninstall.
+- Emit the shipped `lib/*.d.ts` declarations during `build`; they had drifted from the source since 0.1.3.
+
 ## 0.1.5 - 2026-09-05
 
 - Enable install for GitHub Topic rows: the default provider carried no install probe, so every card's install button stayed disabled. Rows now document `dsh plugin --profile web add github:<owner>/<repo>`, and catalogs cached before this derive the same probe while parsing, so no re-crawl is needed.

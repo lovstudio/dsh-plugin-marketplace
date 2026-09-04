@@ -1,7 +1,7 @@
 /** Durable plugin-market synchronization preferences. */
 import z from '@deepseek-ai/schemastery';
 /** Provider ids with complete initialization and incremental implementations. */
-export declare const MARKET_PROVIDER_IDS: readonly ["dshfind", "github"];
+export declare const MARKET_PROVIDER_IDS: readonly ['dshfind', 'github'];
 /** Settings namespace owned by the plugin marketplace. */
 export declare const MARKET_SETTINGS_NAMESPACE = "ui-plugin-market";
 /** Default catalog provider. */

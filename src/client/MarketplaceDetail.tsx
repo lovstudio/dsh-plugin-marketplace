@@ -10,7 +10,9 @@ import {
   IconTrashOutline16, IconWarningOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import clsx from 'clsx'
 import { ActionBanner, runningLabel } from './action-banner.tsx'
+import { IconStarFill16, IconStarOutline16 } from './icons.tsx'
 import { useMarketCopyFeedback } from './copy-feedback.ts'
 import { installCommand, installSpec, isInstalled, pluginAgentMarkdown, uninstallCommand, uninstallSpec } from './agent-copy.ts'
 import type { MarketInstallAction } from './market-store.ts'
@@ -28,6 +30,13 @@ export interface MarketplaceDetailProps {
   /** Installed module names (uninstall action availability). */
   installed: readonly string[]
   action: MarketInstallAction | null
+  /** Whether the GitHub credential can read and write stars. */
+  canStar: boolean
+  /** Whether the authenticated GitHub user stars this repository. */
+  starred: boolean
+  /** Whether a star change is in flight for this repository. */
+  starBusy: boolean
+  onToggleStar: (fullName: string) => void
   onInstall: (fullName: string) => void
   onUninstall: (fullName: string) => void
   onRestart: () => void
@@ -48,8 +57,8 @@ function localizedOf(detail: MarketDetailInfo, locale: 'zh' | 'en'): { intro?: s
 
 /** Render the detail dialog. */
 export function MarketplaceDetail({
-  detail, status, locale, installed, action, onInstall, onUninstall, onRestart,
-  onDismissAction, onClose, onRetry, onOpenRepository, t,
+  detail, status, locale, installed, action, canStar, starred, starBusy, onToggleStar,
+  onInstall, onUninstall, onRestart, onDismissAction, onClose, onRetry, onOpenRepository, t,
 }: MarketplaceDetailProps): ReactNode {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -172,6 +181,18 @@ export function MarketplaceDetail({
             </div>
 
             <div className={css.actions}>
+              {canStar ? (
+                <button
+                  type="button"
+                  className={clsx(css.action, starred && css.actionOn)}
+                  disabled={starBusy}
+                  aria-pressed={starred}
+                  onClick={() => { onToggleStar(detail.fullName) }}
+                >
+                  {starred ? <IconStarFill16 size={14} /> : <IconStarOutline16 size={14} />}
+                  {starred ? t('starred') : t('star')}
+                </button>
+              ) : null}
               <button type="button" className={css.action} onClick={idCopy.onCopy}>
                 <IconCopyOutline16 size={14} />
                 {idCopy.copied ? t('copied') : t('copyId')}

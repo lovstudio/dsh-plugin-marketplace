@@ -376,3 +376,30 @@
   justify-content: center;
   min-height: 1px;
 }
+
+/* Star failure: almost always a token missing the starring scope, so the
+   exact GitHub message stays on screen and copyable. */
+.starError {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-l2);
+}
+
+.starErrorText {
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+}
+
+.starErrorDetail {
+  flex-basis: 100%;
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--dsw-font-mono, monospace);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}

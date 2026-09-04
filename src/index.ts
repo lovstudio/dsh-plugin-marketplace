@@ -95,7 +95,9 @@ function runPluginAction(
 ): Promise<PluginActionResult> {
   const verb = action === 'install' ? 'add' : 'remove'
   const profile = activeProfile()
-  const command = `dsh plugin --profile ${profile} ${verb} ${spec}`
+  // A profile directory is its own pnpm workspace root, which pnpm refuses to
+  // change without `-w`.
+  const command = `dsh plugin --profile ${profile} ${verb} -w ${spec}`
   const launcher = process.argv[1]
   if (launcher === undefined) {
     return Promise.resolve({ ok: false, exitCode: -1, command, error: 'current dsh launcher path is unavailable' })
@@ -103,7 +105,7 @@ function runPluginAction(
   return new Promise((resolve) => {
     const child = spawn(
       process.execPath,
-      [...process.execArgv, launcher, 'plugin', '--profile', profile, verb, spec],
+      [...process.execArgv, launcher, 'plugin', '--profile', profile, verb, '-w', spec],
       {
         cwd: process.cwd(),
         env: { ...process.env, CI: 'true' },

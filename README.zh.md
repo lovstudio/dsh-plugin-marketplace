@@ -20,14 +20,14 @@
 ```sh
 git clone --depth 1 --branch dsh-v0.1.2-rc.1 https://github.com/deepseek-ai/deepseek-harness.git
 cd deepseek-harness && pnpm install && pnpm run build
-pnpm dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.5
+pnpm dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.6
 pnpm dsh web
 ```
 
 **不 clone（npx，只有编译后的 harness）：**
 
 ```sh
-npx @deepseek-ai/dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.5
+npx @deepseek-ai/dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.6
 npx @deepseek-ai/dsh web
 ```
 
@@ -66,6 +66,12 @@ Client bundle 只请求冻结的平台 module-table entries；目录 codec、`zo
 ## 质量评估与 Agent 交接
 
 每张卡片与详情弹窗都会展示目录的质量评估：评级（S/A/B/C）、评分（0-100）与风险标记及说明。复制动作产出面向 Agent 的 Markdown：插件唯一 id（`owner/repo`）、紧凑的 `for Agent` 信息块（身份、评估、元数据、安装命令、仓库地址），以及注明当前已加载并纳入多少查询结果的批量信息块。安装与卸载是直接操作。已安装徽标来自 Host 侧只读的 `pluginInventory` 投影（按包名或探测到的 npm 包名与模块名匹配）。
+
+卡片动作区保持固定形状：Star 与安装常驻，其余动作（详情、复制 id、复制给 Agent、打开仓库）收进三点菜单。
+
+安装 GitHub 来源的插件时会先解析仓库自身的 `package.json`：若 npm 上存在同名包，则安装已发布的包——因为 git 形式的 spec 会让 pnpm 执行该包的 `prepare` 构建，而 pnpm 在该构建被精确加入允许列表前会拒绝执行。npm 上不存在的仓库仍按 `github:owner/repo` 安装。所有动作都带 `-w`，因为 profile 目录本身就是一个 pnpm workspace root。
+
+Star 与取消 Star 通过同一个 Host 网关以认证用户身份执行，token 不进入浏览器。搜索目录不需要任何 scope，但 Star 需要：经典 token 需勾选 `public_repo`，细粒度 token 需要 `Starring` 用户权限（写）加 `Metadata` 读。缺少权限时 Star 动作不显示，设置卡片的**测试**会给出提示，被拒绝的 Star 会原样保留 GitHub 的报错并提供复制按钮。
 
 DeepSeek Harness 仍通过 `dsh plugin` CLI 统一负责 profile 的全部持久化变更。Marketplace Host 只提供两个同源且受每代随机 token 保护的动作路由；每次操作都启动当前 DSH 可执行文件的 `plugin` 模式，因此依赖安装、profile 写入与 bundle 对账继续使用官方 CLI，而不是维护第二套包管理器。成功后界面会进入共享的 Better Restart 流程。插件启停仍属于 profile 配置界面。
 

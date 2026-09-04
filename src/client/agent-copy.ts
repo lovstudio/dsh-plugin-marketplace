@@ -19,10 +19,16 @@ export function installedName(
   installed: readonly string[],
 ): string | null {
   if (installed.length === 0) return null
-  const names = new Set(installed)
+  // Repository names carry the owner's capitalization (`DSH-better-sidebar`)
+  // while the published module is lower case, so match case-insensitively and
+  // answer with the inventory's own spelling.
+  const names = new Map(installed.map(name => [name.toLocaleLowerCase(), name]))
   const probed = plugin.install?.pkgName
-  if (probed !== undefined && probed.length > 0 && names.has(probed)) return probed
-  return names.has(plugin.name) ? plugin.name : null
+  if (probed !== undefined && probed.length > 0) {
+    const match = names.get(probed.toLocaleLowerCase())
+    if (match !== undefined) return match
+  }
+  return names.get(plugin.name.toLocaleLowerCase()) ?? null
 }
 
 /**
@@ -45,11 +51,16 @@ export function installCommand(plugin: MarketPluginSummary): string | null {
   return plugin.install?.cmd ?? null
 }
 
-/** Resolve the single package spec of an official Web-profile install command. */
+/**
+ * Resolve the single package spec of an official Web-profile install command.
+ * The workspace-root flag is optional in the documented command because the
+ * Host always passes it.
+ */
 export function installSpec(plugin: MarketPluginSummary): string | null {
   const command = installCommand(plugin)
   if (command === null) return null
-  const match = /^(?:dsh|npx -y @deepseek-ai\/dsh(?:@[^\s]+)?) plugin --profile web add ([^\s]+)$/.exec(command)
+  const match = /^(?:dsh|npx -y @deepseek-ai\/dsh(?:@[^\s]+)?) plugin --profile web add (?:(?:-w|--workspace-root) )?([^\s]+)$/
+    .exec(command)
   return match?.[1] ?? null
 }
 
@@ -83,7 +94,7 @@ export function uninstallCommand(
   installed: readonly string[] = [],
 ): string | null {
   const spec = uninstallSpec(plugin, installed)
-  return spec === null ? null : `dsh plugin --profile web remove ${spec}`
+  return spec === null ? null : `dsh plugin --profile web remove -w ${spec}`
 }
 
 /** One line of the per-plugin agent block: `- key: value` when the value is present. */
@@ -157,6 +168,6 @@ export function listAgentMarkdown(
     '',
     ...rows,
     '',
-    'Install any of these with: dsh plugin --profile web add <pkg>',
+    'Install any of these with: dsh plugin --profile web add -w <pkg>',
   ].join('\n')
 }

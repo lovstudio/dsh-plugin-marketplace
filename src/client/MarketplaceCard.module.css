@@ -201,6 +201,12 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+/* Starred: the only state in the row that reads as "on". */
+.actionOn,
+.actionOn:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
 .actionBanner {
   display: flex;
   flex-wrap: wrap;

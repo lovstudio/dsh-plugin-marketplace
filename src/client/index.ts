@@ -136,6 +136,24 @@ function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
       }
       return result.value.entries.map(entry => entry.moduleName)
     },
+    resolvePackage: async (fullName) => {
+      const response = await ctx.remote.pluginMarketGithub.resolvePackage({ fullName })
+      if (!response.ok) {
+        throw new Error(`pluginMarketGithub.resolvePackage failed: ${response.error.code}: ${response.error.message}`)
+      }
+      return response.value
+    },
+    listStarred: async () => {
+      const response = await ctx.remote.pluginMarketGithub.listStarred()
+      if (!response.ok) {
+        throw new Error(`pluginMarketGithub.listStarred failed: ${response.error.code}: ${response.error.message}`)
+      }
+      return response.value.fullNames
+    },
+    setStar: async (fullName, starred) => {
+      const response = await ctx.remote.pluginMarketGithub.setStar({ fullName, starred })
+      if (!response.ok) throw new Error(response.error.message)
+    },
     install: async (spec) => runPluginAction('install', spec),
     uninstall: async (spec) => runPluginAction('uninstall', spec),
     status: () => betterRestartUi?.status() ?? Promise.resolve({ running: false, active: 0 }),
@@ -171,6 +189,7 @@ function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
     }
   }
   applyStartupPreference()
+  void controller.refreshStarred()
   ctx.effect(
     () => settings.subscribe(applyStartupPreference),
     'ui-plugin-market: startup synchronization preference',
@@ -186,7 +205,9 @@ function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
   ctx.effect(
     () => ctx.remote.$on('credentials/reference-updated', (ref: string) => {
       settingsCard.refreshCredential(ref)
-      if (ref === 'GITHUB_TOKEN' && providerRouter.selected() === 'github') void controller.syncCatalog(true)
+      if (ref !== 'GITHUB_TOKEN') return
+      void controller.refreshStarred()
+      if (providerRouter.selected() === 'github') void controller.syncCatalog(true)
     }),
     'ui-plugin-market: GitHub credential refresh',
   )

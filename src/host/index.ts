@@ -5,7 +5,9 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   GitHubMarketCredentialProbeRequest, GitHubMarketCredentialProbeResult,
+  GitHubMarketPackageRequest, GitHubMarketPackageResult,
   GitHubMarketRepository, GitHubMarketSearchPage, GitHubMarketSearchRequest,
+  GitHubMarketStarRequest, GitHubMarketStarredResult,
 } from './types.ts'
 
 export type * from './types.ts'
@@ -29,6 +31,33 @@ interface GitHubRepositoryWire {
   stargazers_count?: unknown
   pushed_at?: unknown
   archived?: unknown
+}
+
+/** Pages of starred repositories one inventory read is willing to spend. */
+const STARRED_PAGE_LIMIT = 20
+
+/** Repositories per starred-inventory page (GitHub's maximum). */
+const STARRED_PAGE_SIZE = 100
+
+/** Whether a classic token's scopes cover starring a public repository. */
+function grantsStarring(scopes: readonly string[]): boolean {
+  // A fine-grained token reports no scopes at all; its `Starring` permission
+  // is invisible here, so only a star attempt can disprove it.
+  return scopes.length === 0 || scopes.includes('repo') || scopes.includes('public_repo')
+}
+
+/** Split the `x-oauth-scopes` header a classic token answers with. */
+function scopesOf(header: string | null): readonly string[] {
+  if (header === null) return []
+  return header.split(',').map(scope => scope.trim()).filter(scope => scope.length > 0)
+}
+
+/** Accept only `owner/repository`, the shape every starring route is built from. */
+function repositoryPath(fullName: string): string {
+  if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(fullName)) {
+    throw new Error(`GitHub repository name is invalid: ${fullName}`)
+  }
+  return fullName
 }
 
 /** Validate one GitHub search row at the external JSON boundary. */
@@ -107,7 +136,97 @@ export class PluginMarketGitHubGateway extends TypertRemoteService {
     if (typeof raw.login !== 'string' || raw.login.length === 0) {
       throw new Error('GitHub credential test returned an invalid authenticated user')
     }
-    return { login: raw.login, rateLimitRemaining: remaining }
+    const scopes = scopesOf(response.headers.get('x-oauth-scopes'))
+    return { login: raw.login, rateLimitRemaining: remaining, scopes, canStar: grantsStarring(scopes) }
+  }
+
+  /** Authorization header set shared by every authenticated GitHub request. */
+  private async headers(): Promise<Record<string, string>> {
+    return {
+      accept: 'application/vnd.github+json',
+      authorization: `Bearer ${await this.token()}`,
+      'x-github-api-version': '2022-11-28',
+    }
+  }
+
+  /**
+   * Resolve the npm identity a repository declares, so an install can name the
+   * published package instead of the repository. A git-hosted spec makes pnpm
+   * run the package's `prepare` build, which it refuses until the exact build
+   * key is allowlisted; the published package needs no build at all.
+   * @param request - the repository to resolve.
+   * @returns the manifest name and version, and whether npm serves that name.
+   */
+  @Remote('resolvePackage')
+  async resolvePackage(request: GitHubMarketPackageRequest): Promise<GitHubMarketPackageResult> {
+    const path = repositoryPath(request.fullName)
+    const response = await fetch(`https://api.github.com/repos/${path}/contents/package.json`, {
+      headers: { ...await this.headers(), accept: 'application/vnd.github.raw+json' },
+    })
+    // A repository without a root manifest is installable only as a git spec.
+    if (response.status === 404) return { npmPublished: false }
+    if (!response.ok) throw new Error(`GitHub manifest read failed: HTTP ${String(response.status)}`)
+    let manifest: { name?: unknown; version?: unknown }
+    try {
+      manifest = JSON.parse(await response.text()) as { name?: unknown; version?: unknown }
+    } catch {
+      return { npmPublished: false }
+    }
+    if (typeof manifest.name !== 'string' || manifest.name.length === 0) return { npmPublished: false }
+    const version = typeof manifest.version === 'string' ? manifest.version : undefined
+    const registry = await fetch(`https://registry.npmjs.org/${manifest.name.split('/').map(encodeURIComponent).join('/')}`, {
+      headers: { accept: 'application/vnd.npm.install-v1+json' },
+    })
+    return {
+      pkgName: manifest.name,
+      ...version === undefined ? {} : { pkgVersion: version },
+      npmPublished: registry.ok,
+    }
+  }
+
+  /**
+   * Read the repositories the authenticated user has starred.
+   * @returns every starred `owner/repository` read, and whether pages remained.
+   */
+  @Remote('listStarred')
+  async listStarred(): Promise<GitHubMarketStarredResult> {
+    const headers = await this.headers()
+    const fullNames: string[] = []
+    for (let page = 1; page <= STARRED_PAGE_LIMIT; page += 1) {
+      const params = new URLSearchParams({ per_page: String(STARRED_PAGE_SIZE), page: String(page) })
+      const response = await fetch(`https://api.github.com/user/starred?${params.toString()}`, { headers })
+      if (!response.ok) throw new Error(`GitHub starred read failed: HTTP ${String(response.status)}`)
+      const raw = await response.json() as unknown
+      if (!Array.isArray(raw)) throw new Error('GitHub starred read returned an invalid response')
+      for (const row of raw) {
+        const name = (row as { full_name?: unknown } | null)?.full_name
+        if (typeof name === 'string' && name.length > 0) fullNames.push(name)
+      }
+      if (raw.length < STARRED_PAGE_SIZE) return { fullNames, truncated: false }
+    }
+    return { fullNames, truncated: true }
+  }
+
+  /**
+   * Star or unstar one repository as the authenticated user.
+   * @param request - the repository and the target state.
+   * @returns the state GitHub accepted.
+   */
+  @Remote('setStar')
+  async setStar(request: GitHubMarketStarRequest): Promise<{ fullName: string; starred: boolean }> {
+    const path = repositoryPath(request.fullName)
+    const response = await fetch(`https://api.github.com/user/starred/${path}`, {
+      method: request.starred ? 'PUT' : 'DELETE',
+      headers: { ...await this.headers(), 'content-length': '0' },
+    })
+    if (response.status === 403 || response.status === 404) {
+      throw new Error(
+        'GitHub refused the star: the token needs the `public_repo` scope (classic) '
+        + 'or the `Starring` user permission with write access (fine-grained)',
+      )
+    }
+    if (!response.ok) throw new Error(`GitHub star update failed: HTTP ${String(response.status)}`)
+    return { fullName: path, starred: request.starred }
   }
 
   /**

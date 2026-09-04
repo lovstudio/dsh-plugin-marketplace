@@ -20,14 +20,14 @@ Prerequisites: Node.js 22.19+ or 24+, pnpm 11 (`corepack enable` or `npm i -g pn
 ```sh
 git clone --depth 1 --branch dsh-v0.1.2-rc.1 https://github.com/deepseek-ai/deepseek-harness.git
 cd deepseek-harness && pnpm install && pnpm run build
-pnpm dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.5
+pnpm dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.6
 pnpm dsh web
 ```
 
 **Without a checkout (npx; compiled harness only):**
 
 ```sh
-npx @deepseek-ai/dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.5
+npx @deepseek-ai/dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.6
 npx @deepseek-ai/dsh web
 ```
 
@@ -67,6 +67,12 @@ The toolbar additionally supports catalog sorting (`stars`/`updated`/`score`/`na
 ## Quality assessment and agent handoff
 
 Each card and the detail dialog surface the catalog's quality assessment: grade (S/A/B/C), score (0-100), and risk flag with note. Copy actions produce agent-facing Markdown: the plugin id (`owner/repo`), the compact `for Agent` block (identity, assessment, metadata, install command, repository), and a batch block that states how many of the query's total rows are currently loaded and included. Install and uninstall are direct actions. The installed badge derives from the read-only Host `pluginInventory` projection (module-name match against the package or probed npm name).
+
+Card actions keep one shape as the set grows: star and install stay visible, everything else (details, copy id, copy for agent, open repository) sits behind the overflow menu.
+
+Installing a GitHub row resolves the repository's own `package.json` first: when npm serves that name, the action installs the published package, because a git-hosted spec makes pnpm run the package's `prepare` build and pnpm refuses that until the exact build key is allowlisted. Repositories npm does not serve still install as `github:owner/repo`. Every action passes `-w`, since a profile directory is its own pnpm workspace root.
+
+Star and unstar act as the authenticated GitHub user through the same Host gateway, so the token never reaches the browser. Searching the catalog needs no scope at all, but starring does: a classic token needs `public_repo`, and a fine-grained token needs the `Starring` user permission with write access plus `Metadata` read. Without it the star actions stay hidden, **Test** in the settings card says so, and a refused star keeps GitHub's own message on screen with a copy action.
 
 DeepSeek Harness still owns every persistent profile change through its `dsh plugin` CLI. The Marketplace Host exposes only two same-origin, per-generation-token-protected action routes; each action launches the current DSH executable in `plugin` mode, so dependency installation, profile writes, and bundle reconciliation remain official CLI behavior rather than a second package manager. A successful action offers the shared Better Restart flow. Enable/disable remains a profile configuration concern.
 

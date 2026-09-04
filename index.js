@@ -61,7 +61,7 @@ function writeJson(res, status, body) {
 function runPluginAction(action, spec, setChild) {
 	const verb = action === "install" ? "add" : "remove";
 	const profile = activeProfile();
-	const command = `dsh plugin --profile ${profile} ${verb} ${spec}`;
+	const command = `dsh plugin --profile ${profile} ${verb} -w ${spec}`;
 	const launcher = process.argv[1];
 	if (launcher === void 0) return Promise.resolve({
 		ok: false,
@@ -77,6 +77,7 @@ function runPluginAction(action, spec, setChild) {
 			"--profile",
 			profile,
 			verb,
+			"-w",
 			spec
 		], {
 			cwd: process.cwd(),

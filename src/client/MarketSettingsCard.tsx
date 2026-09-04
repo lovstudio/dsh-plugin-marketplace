@@ -126,6 +126,9 @@ export function MarketSettingsCard(props: MarketSettingsCardProps) {
                   {props.t('settingsCredentialValid', { account: state.githubToken.testDetail ?? '' })}
                 </p>
               ) : null}
+              {state.githubToken.testStatus === 'success' && state.githubToken.canStar === false ? (
+                <p className={css.hint} role="status">{props.t('settingsCredentialNoStar')}</p>
+              ) : null}
               {state.githubToken.testStatus === 'error' ? (
                 <p className={css.testError} role="status">
                   {props.t('settingsCredentialInvalid', { reason: state.githubToken.testDetail ?? '' })}

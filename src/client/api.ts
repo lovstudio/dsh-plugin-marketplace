@@ -8,7 +8,7 @@ import { createMarketCatalogCache, type MarketCatalogCache } from './market-cach
 import { compareMarketPlugins, matchesTerm } from './search.ts'
 import type {
   GitHubMarketRepository, GitHubMarketSearchPage, GitHubMarketSearchRequest,
-} from '@lovstudio/dsh-plugin-marketplace/types'
+} from '@lovstudio/dsh-plugin-marketplace/host'
 import type {
   MarketDetailInfo, MarketPageResult, MarketPluginSummary, MarketRequest, MarketSuggestion,
 } from './types.ts'
@@ -469,7 +469,7 @@ const GITHUB_PAGE_SIZE = 100
  */
 function githubInstallInfo(fullName: string): Record<string, unknown> {
   return {
-    cmd: `dsh plugin --profile web add github:${fullName}`,
+    cmd: `dsh plugin --profile web add -w github:${fullName}`,
     source: 'auto',
     kind: 'git',
   }

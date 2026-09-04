@@ -1,7 +1,7 @@
 {
   "name": "@lovstudio/dsh-plugin-marketplace",
   "description": "Local-first DeepSeek Harness plugin marketplace with GitHub and dshfind providers",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "type": "module",
   "main": "index.js",
   "types": "lib/index.d.ts",
@@ -69,7 +69,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.host.json && tsdown",
+    "build": "tsc -p tsconfig.host.json && tsc -p tsconfig.host.json --declaration --emitDeclarationOnly --outDir lib/types && cp lib/types/index.d.ts lib/index.d.ts && cp lib/types/invariant.d.ts lib/invariant.d.ts && cp lib/types/market-settings.d.ts lib/market-settings.d.ts && cp lib/types/host/index.d.ts lib/host.d.ts && cp lib/types/host/types.d.ts lib/types.d.ts && tsdown",
     "watch": "tsdown --watch",
     "prepack": "pnpm run build"
   },

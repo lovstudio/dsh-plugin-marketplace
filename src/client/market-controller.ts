@@ -14,6 +14,7 @@ import { installSpec, uninstallSpec } from './agent-copy.ts'
 import {
   createMarketViewState, MARKET_PAGE_SIZE, type MarketInstallAction, type MarketViewState,
 } from './market-store.ts'
+import type { GitHubMarketPackageResult } from '@lovstudio/dsh-plugin-marketplace/host'
 import type { PluginActionOutcome } from './plugin-actions.ts'
 import type { MarketFilters, MarketOrder, MarketRequest, MarketSort } from './types.ts'
 
@@ -40,6 +41,21 @@ export interface MarketPorts {
   status: () => Promise<RestartActivity>
   /** Re-boot the application tree. */
   restart: () => Promise<void>
+  /**
+   * Resolve the npm identity a repository declares, when the GitHub gateway is
+   * present. Absent for deployments without the credential.
+   */
+  resolvePackage?: (fullName: string) => Promise<GitHubMarketPackageResult>
+  /** Read every repository the GitHub user has starred. */
+  listStarred?: () => Promise<readonly string[]>
+  /** Star or unstar one repository as the GitHub user. */
+  setStar?: (fullName: string, starred: boolean) => Promise<void>
+}
+
+/** Case-insensitive membership of one `owner/repository` in a star set. */
+function contains(names: readonly string[], fullName: string): boolean {
+  const wanted = fullName.toLocaleLowerCase()
+  return names.some(name => name.toLocaleLowerCase() === wanted)
 }
 
 /** Whether a parsed query needs the multi-request merge pipeline. */
@@ -242,28 +258,49 @@ export class MarketController {
     })
   }
 
-  /** Resolve the package spec for one catalog action. */
-  private actionSpec(state: MarketViewState, fullName: string, kind: 'install' | 'uninstall'): string | null {
+  /**
+   * Resolve the package spec for one catalog action. A repository spec is
+   * traded for the published package name when npm serves it: pnpm builds a
+   * git-hosted package through its `prepare` script, which it refuses to run
+   * until that exact build is allowlisted, while the published package needs
+   * no build at all.
+   */
+  private async actionSpec(
+    state: MarketViewState,
+    fullName: string,
+    kind: 'install' | 'uninstall',
+  ): Promise<string | null> {
     const row = state.items.find(plugin => plugin.fullName === fullName)
       ?? (state.detail !== null && state.detail.fullName === fullName ? state.detail : undefined)
     if (row === undefined) return null
-    return kind === 'install' ? installSpec(row) : uninstallSpec(row, state.installed)
+    if (kind === 'uninstall') return uninstallSpec(row, state.installed)
+    const spec = installSpec(row)
+    const resolve = this.ports.resolvePackage
+    if (spec === null || !spec.startsWith('github:') || resolve === undefined) return spec
+    try {
+      const resolved = await resolve(row.fullName)
+      const name = resolved.pkgName
+      return resolved.npmPublished && name !== undefined && name.length > 0 ? name : spec
+    } catch {
+      // The repository spec still installs; only the build allowlist differs.
+      return spec
+    }
   }
 
   /** Run one profile package action and publish its exact result. */
-  private runAction(kind: 'install' | 'uninstall', fullName: string): void {
-    const spec = this.actionSpec(this.store.getSnapshot(), fullName, kind)
+  private async runAction(kind: 'install' | 'uninstall', fullName: string): Promise<void> {
+    this.store.update((state) => {
+      state.action = { fullName, kind, status: 'running', message: '' }
+    })
+    const spec = await this.actionSpec(this.store.getSnapshot(), fullName, kind)
     if (spec === null) {
       this.store.update((state) => {
         state.action = { fullName, kind, status: 'error', message: 'not-installable' }
       })
       return
     }
-    this.store.update((state) => {
-      state.action = { fullName, kind, status: 'running', message: '' }
-    })
     const operation = kind === 'install' ? this.ports.install(spec) : this.ports.uninstall(spec)
-    void operation.then(
+    await operation.then(
       (result) => {
         this.store.update((state) => {
           const action: MarketInstallAction = {
@@ -276,6 +313,8 @@ export class MarketController {
           if (!result.ok && result.error !== undefined) action.detail = result.error
           state.action = action
         })
+        // The inventory decides the installed badge and the uninstall spec.
+        if (result.ok) void this.refreshInstalled()
       },
       (reason: unknown) => {
         this.store.update((state) => {
@@ -293,12 +332,12 @@ export class MarketController {
 
   /** Install one Marketplace package into the Web profile. */
   install(fullName: string): void {
-    this.runAction('install', fullName)
+    void this.runAction('install', fullName)
   }
 
   /** Uninstall one Marketplace package from the Web profile. */
   uninstall(fullName: string): void {
-    this.runAction('uninstall', fullName)
+    void this.runAction('uninstall', fullName)
   }
 
   /** Dismiss the settled package-action banner. */
@@ -364,6 +403,62 @@ export class MarketController {
     if (this.restartTimer === null) return
     clearInterval(this.restartTimer)
     this.restartTimer = null
+  }
+
+  /**
+   * Refresh the starred-repository set from GitHub. A failure (no credential,
+   * or a token without the starring scope) leaves the star actions hidden
+   * rather than failing the marketplace.
+   */
+  async refreshStarred(): Promise<void> {
+    const list = this.ports.listStarred
+    if (list === undefined) return
+    try {
+      const fullNames = await list()
+      this.store.update((state) => {
+        state.starred = fullNames
+        state.starSupported = true
+      })
+    } catch {
+      this.store.update((state) => { state.starSupported = false })
+    }
+  }
+
+  /**
+   * Star or unstar one repository, keeping the local set in step.
+   * @param fullName - the `owner/repository` to toggle.
+   */
+  toggleStar(fullName: string): void {
+    const set = this.ports.setStar
+    if (set === undefined) return
+    const snapshot = this.store.getSnapshot()
+    if (contains(snapshot.starBusy, fullName)) return
+    const starred = !contains(snapshot.starred, fullName)
+    this.store.update((state) => {
+      state.starBusy = [...state.starBusy, fullName]
+      state.starError = null
+    })
+    void set(fullName, starred).then(
+      () => {
+        this.store.update((state) => {
+          state.starred = starred
+            ? [...state.starred, fullName]
+            : state.starred.filter(name => name.toLocaleLowerCase() !== fullName.toLocaleLowerCase())
+          state.starBusy = state.starBusy.filter(name => name !== fullName)
+        })
+      },
+      (reason: unknown) => {
+        this.store.update((state) => {
+          state.starBusy = state.starBusy.filter(name => name !== fullName)
+          state.starError = reason instanceof Error ? reason.message : String(reason)
+        })
+      },
+    )
+  }
+
+  /** Clear the latest star failure. */
+  dismissStarError(): void {
+    this.store.update((state) => { state.starError = null })
   }
 
   /** Refresh the installed module-name set from the Host inventory remote. */

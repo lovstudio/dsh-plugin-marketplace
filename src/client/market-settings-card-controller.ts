@@ -38,6 +38,8 @@ export interface MarketSettingsCardState {
     suffix?: string
     testStatus: 'idle' | 'testing' | 'success' | 'error'
     testDetail?: string
+    /** Whether the tested token may star repositories. */
+    canStar?: boolean
   }
 }
 
@@ -77,7 +79,7 @@ export interface CredentialRemote {
   /** Resolves when the Host stored the value; rejects when it refused. */
   set(ref: string, value: string): Promise<unknown>
 }
-type MarketCredentialProbe = (token?: string) => Promise<{ login: string }>
+type MarketCredentialProbe = (token?: string) => Promise<{ login: string; canStar: boolean }>
 
 /** Owns the marketplace card's drafts and revision-fenced settings writes. */
 export class MarketSettingsCardController {
@@ -91,7 +93,7 @@ export class MarketSettingsCardController {
   private githubTokenConfigured = false
   private githubTokenWritable = true
   private githubTokenSuffix: string | undefined
-  private githubTokenTest: { status: 'idle' | 'testing' | 'success' | 'error'; detail?: string } = { status: 'idle' }
+  private githubTokenTest: { status: 'idle' | 'testing' | 'success' | 'error'; detail?: string; canStar?: boolean } = { status: 'idle' }
 
   /** @param scope - Host-backed `ui-plugin-market` settings scope. */
   constructor(
@@ -251,6 +253,7 @@ export class MarketSettingsCardController {
         ...this.githubTokenSuffix === undefined ? {} : { suffix: this.githubTokenSuffix },
         testStatus: this.githubTokenTest.status,
         ...this.githubTokenTest.detail === undefined ? {} : { testDetail: this.githubTokenTest.detail },
+        ...this.githubTokenTest.canStar === undefined ? {} : { canStar: this.githubTokenTest.canStar },
       },
     }
   }
@@ -316,7 +319,7 @@ export class MarketSettingsCardController {
     this.publish()
     try {
       const result = await this.probeCredential(token.length === 0 ? undefined : token)
-      this.githubTokenTest = { status: 'success', detail: result.login }
+      this.githubTokenTest = { status: 'success', detail: result.login, canStar: result.canStar }
     } catch (error: unknown) {
       this.githubTokenTest = {
         status: 'error',

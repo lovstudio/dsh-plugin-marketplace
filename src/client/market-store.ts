@@ -84,6 +84,14 @@ export interface MarketViewState {
   installedOnly: boolean
   /** The latest install/uninstall operation, or null. */
   action: MarketInstallAction | null
+  /** `owner/repository` of every repository the GitHub user has starred. */
+  starred: readonly string[]
+  /** Repositories with a star change in flight. */
+  starBusy: readonly string[]
+  /** Whether the configured GitHub credential can read and write stars. */
+  starSupported: boolean
+  /** The latest star failure, or null. */
+  starError: string | null
   /** Whether the restart confirmation dialog is open. */
   restartConfirm: boolean
   /** Agent activity while restart confirmation is open. */
@@ -120,6 +128,10 @@ export function createMarketViewState(): MarketViewState {
     installed: [],
     installedOnly: false,
     action: null,
+    starred: [],
+    starBusy: [],
+    starSupported: false,
+    starError: null,
     restartConfirm: false,
     restartActivity: null,
     restartStatusUnavailable: false,

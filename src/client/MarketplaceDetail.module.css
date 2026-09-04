@@ -333,3 +333,9 @@
   font-size: 13px;
   color: var(--dsw-alias-state-error-primary);
 }
+
+/* Starred: the only state in the row that reads as "on". */
+.actionOn,
+.actionOn:hover {
+  color: var(--dsw-alias-label-primary);
+}
