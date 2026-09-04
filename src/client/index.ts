@@ -5,24 +5,19 @@
  *
  * dshfind synchronization writes one complete validated snapshot to
  * IndexedDB; every browse, search, detail, facet, sort, and paging read stays
- * local. Install and uninstall run through the loopback-pinned
- * `pluginManager` Remote (pnpm in the managed profile); the success banner
- * delegates restart to `ctx.betterRestartUi`, which reboots the Host tree and
- * reloads the browser after its replacement connection arrives. Installed-
- * state badges come from the Host pluginInventory remote and refresh after
- * each successful operation.
+ * local. Install and uninstall delegate to the current official `dsh plugin`
+ * CLI through this package's same-origin Host action endpoint. Installed-state
+ * badges come from the read-only Host pluginInventory Remote.
  */
 
 import z from '@deepseek-ai/schemastery'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
 import pluginMarketGithubRemote from '@lovstudio/dsh-plugin-marketplace/remote'
 // Type-only: the ctx.remote Context merge and the inventory snapshot type.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: the shared browser restart service and its Context merge.
-import type {} from '@deepseek-ai/dsh-better-restart-ui/client'
 // Type-only: SlotMap declarations of the settings tab, the layout overlay,
 // and the sidebar region entry.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -39,6 +34,7 @@ import { MarketplaceRoot } from './MarketplaceRoot.tsx'
 import { MarketOverlay } from './MarketOverlay.tsx'
 import { MarketSettingsCard } from './MarketSettingsCard.tsx'
 import { MarketSettingsCardController } from './market-settings-card-controller.ts'
+import { resetPluginActionToken, runPluginAction } from './plugin-actions.ts'
 import { SidebarMarketEntry } from './SidebarMarketEntry.tsx'
 import {
   DEFAULT_MARKET_PROVIDER, MARKET_SETTINGS_NAMESPACE, type MarketSettings,
@@ -83,8 +79,13 @@ export const Config = z.object({
  * touches must be declared, or the Cordis tracker rejects the access. */
 export const inject = [
   'slots', 'locale', 'connection', 'remote', 'settingsScope',
-  'remote.pluginInventory', 'remote.pluginManager', 'betterRestartUi',
+  'remote.pluginInventory',
 ]
+
+interface BetterRestartUi {
+  status(): Promise<{ running: boolean; active: number }>
+  restart(): void
+}
 
 /** Map a locale id onto the description-locale preference of agent copy. */
 function localeOf(active: string): 'zh' | 'en' {
@@ -110,6 +111,7 @@ export async function apply(ctx: ClientContext, config?: MarketConfig): Promise<
 /** Mount marketplace consumers after the package-owned GitHub Remote namespace is active. */
 function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
   const { api: connectionApi } = ctx.get('connection') as ConnectionHandle
+  const betterRestartUi = ctx.get('betterRestartUi') as BetterRestartUi | undefined
   const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-plugin-market: dictionaries')
 
@@ -136,44 +138,12 @@ function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
       }
       return result.value.entries.map(entry => entry.moduleName)
     },
-    install: async (packageName) => {
-      const remote = ctx.get('remote')
-      if (remote === undefined) throw new Error('remote service unavailable')
-      const result = await remote.pluginManager.install(packageName)
-      if (!result.ok) {
-        return {
-          ok: false,
-          exitCode: -1,
-          error: `${result.error.code}: ${result.error.message}`,
-        }
-      }
-      return result.value
-    },
-    uninstall: async (packageName) => {
-      const remote = ctx.get('remote')
-      if (remote === undefined) throw new Error('remote service unavailable')
-      const result = await remote.pluginManager.uninstall(packageName)
-      if (!result.ok) {
-        return {
-          ok: false,
-          exitCode: -1,
-          error: `${result.error.code}: ${result.error.message}`,
-        }
-      }
-      return result.value
-    },
-    approveBuilds: async (packageNames) => {
-      const remote = ctx.get('remote')
-      if (remote === undefined) throw new Error('remote service unavailable')
-      const result = await remote.pluginManager.approveBuilds([...packageNames])
-      if (!result.ok) {
-        throw new Error(`pluginManager.approveBuilds failed: ${result.error.code}: ${result.error.message}`)
-      }
-      return result.value
-    },
-    status: () => ctx.betterRestartUi.status(),
+    install: async (spec) => runPluginAction('install', spec),
+    uninstall: async (spec) => runPluginAction('uninstall', spec),
+    status: () => betterRestartUi?.status() ?? Promise.resolve({ running: false, active: 0 }),
     restart: () => {
-      ctx.betterRestartUi.restart()
+      if (betterRestartUi === undefined) throw new Error('Better Restart is not active')
+      betterRestartUi.restart()
       return Promise.resolve()
     },
   })
@@ -209,7 +179,10 @@ function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
   )
   void controller.refreshInstalled()
   ctx.effect(
-    () => ctx.on('connection/reset', () => { void controller.refreshInstalled() }),
+    () => ctx.on('connection/reset', () => {
+      resetPluginActionToken()
+      void controller.refreshInstalled()
+    }),
     'ui-plugin-market: installed-name refresh',
   )
   ctx.effect(

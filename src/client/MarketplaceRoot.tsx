@@ -282,7 +282,7 @@ function activeFilterCount(
   return count
 }
 
-/** Restart confirmation dialog: gates the reboot while agents run. */
+/** Confirm an interrupting restart while Agent activity remains live. */
 function RestartConfirmDialog({
   activity, unavailable, onConfirm, onCancel, t,
 }: {
@@ -490,7 +490,6 @@ export function MarketplaceRoot({ controller, useView, locale, t }: MarketplaceR
             onUninstall={(fullName) => { controller.uninstall(fullName) }}
             onRestart={() => { void controller.restart() }}
             onDismissAction={() => { controller.dismissAction() }}
-            onApproveBuilds={() => { controller.approveBuilds(plugin.fullName) }}
             onDetails={(fullName) => { controller.openDetail(fullName) }}
             onOpenRepository={openRepository}
             t={t}
@@ -550,7 +549,6 @@ export function MarketplaceRoot({ controller, useView, locale, t }: MarketplaceR
           onUninstall={(fullName) => { controller.uninstall(fullName) }}
           onRestart={() => { void controller.restart() }}
           onDismissAction={() => { controller.dismissAction() }}
-          onApproveBuilds={() => { if (view.selected !== null) controller.approveBuilds(view.selected) }}
           onClose={() => { controller.closeDetail() }}
           /* v8 ignore next -- the dialog renders only while selected is set. */
           onRetry={() => { if (view.selected !== null) controller.openDetail(view.selected) }}

@@ -1,7 +1,7 @@
 /**
  * One marketplace row: identity, quality assessment, description, tags, and
- * the per-plugin actions (details, copy id, copy for agent, install or
- * uninstall in place, open repository).
+ * the per-plugin actions (details, copy id, copy for agent, direct profile
+ * install/uninstall, and open repository).
  */
 
 import type { ReactNode } from 'react'
@@ -12,7 +12,7 @@ import {
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { ActionBanner, runningLabel } from './action-banner.tsx'
 import { useMarketCopyFeedback } from './copy-feedback.ts'
-import { isInstalled, pluginAgentMarkdown } from './agent-copy.ts'
+import { installSpec, isInstalled, pluginAgentMarkdown, uninstallSpec } from './agent-copy.ts'
 import type { MarketInstallAction } from './market-store.ts'
 import type { MarketPluginSummary } from './types.ts'
 import css from './MarketplaceCard.module.css'
@@ -25,18 +25,12 @@ export interface MarketplaceCardProps {
   installed: readonly string[]
   /** Description-locale preference for agent copy. */
   locale: 'zh' | 'en'
-  /** The latest install/uninstall operation, or null. */
+  /** Latest package operation, or null. */
   action: MarketInstallAction | null
-  /** Install this plugin into the managed profile. */
   onInstall: (fullName: string) => void
-  /** Uninstall this plugin from the managed profile. */
   onUninstall: (fullName: string) => void
-  /** Re-boot the application tree so profile changes take effect. */
   onRestart: () => void
-  /** Dismiss the settled action banner. */
   onDismissAction: () => void
-  /** Approve the action's ignored build scripts and retry the install. */
-  onApproveBuilds: () => void
   /** Open the detail dialog. */
   onDetails: (fullName: string) => void
   /** Open the repository URL in a new tab. */
@@ -55,13 +49,14 @@ function badgeLabel(t: MarketplaceCardProps['t'], plugin: MarketPluginSummary): 
 
 /** Render one marketplace card. */
 export function MarketplaceCard({
-  plugin, installed, locale, action, onInstall, onUninstall, onRestart, onDismissAction,
-  onApproveBuilds, onDetails, onOpenRepository, t,
+  plugin, installed, locale, action, onInstall, onUninstall, onRestart,
+  onDismissAction, onDetails, onOpenRepository, t,
 }: MarketplaceCardProps): ReactNode {
   const idCopy = useMarketCopyFeedback(plugin.fullName)
   const agentCopy = useMarketCopyFeedback(pluginAgentMarkdown(plugin, locale))
   const badge = badgeLabel(t, plugin)
   const installedFlag = isInstalled(plugin, installed)
+  const spec = installedFlag ? uninstallSpec(plugin) : installSpec(plugin)
   const ownAction = action !== null && action.fullName === plugin.fullName ? action : null
   const running = ownAction?.status === 'running'
 
@@ -120,15 +115,12 @@ export function MarketplaceCard({
         <button
           type="button"
           className={css.action}
-          disabled={running}
-          onClick={() => {
-            if (installedFlag) onUninstall(plugin.fullName)
-            else onInstall(plugin.fullName)
-          }}
+          disabled={spec === null || running}
+          onClick={() => { if (installedFlag) onUninstall(plugin.fullName); else onInstall(plugin.fullName) }}
           aria-label={installedFlag ? t('uninstall') : t('install')}
         >
           {installedFlag ? <IconTrashOutline16 size={14} /> : <IconDownloadOutline16 size={14} />}
-          {ownAction !== null && ownAction.status === 'running'
+          {running && ownAction !== null
             ? runningLabel(ownAction, t)
             : installedFlag ? t('uninstall') : t('install')}
         </button>
@@ -147,7 +139,6 @@ export function MarketplaceCard({
           action={ownAction}
           onRestart={onRestart}
           onDismissAction={onDismissAction}
-          onApproveBuilds={onApproveBuilds}
           t={t}
           css={css}
         />

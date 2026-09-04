@@ -1,8 +1,8 @@
 /** Staged plugin-configuration card over the marketplace settings namespace. */
 
 import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
-import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   DEFAULT_MARKET_PROVIDER, type MarketProviderId, type MarketSettings,
 } from '../market-settings.ts'

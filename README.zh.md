@@ -21,6 +21,18 @@ dsh plugin --profile web add @lovstudio/dsh-plugin-marketplace
 
 bundle 会一起插入 `@lovstudio/dsh-plugin-marketplace/host` 与 `@lovstudio/dsh-plugin-marketplace`。浏览器半边自行挂载 `pluginMarketGithub` Remote contribution，因此无需修改 Harness 全局 Remote 装配，也无需重新构建 Web。
 
+## 本地开发
+
+本仓库自己维护 Host、Client 与 CSS Modules 构建。把它放在 Harness checkout 之外，并将它 link 到隔离开发 profile：
+
+```sh
+pnpm install
+pnpm run watch
+DSH_HOME=/Users/mark/.dsh-lov-dev pnpm --dir /path/to/deepseek-harness dsh plugin --profile web add link:/path/to/dsh-plugin-marketplace
+```
+
+Client bundle 只请求冻结的平台 module-table entries；目录 codec、`zod`、`schemastery`、`clsx` 与 CSS 均在本仓库内打包。
+
 ## 本地目录同步
 
 `MarketProvider` 是 provider 接口：每个可选来源都必须实现完整初始化、增量同步、按 id 查询详情，以及本地列表、联想和分类投影。`dshfind` provider 通过 `GET /v1/catalog` 初始化。增量同步先读取一行 `GET /v1/plugins` 并比较 `data_version`；版本不变时只推进本地更新时间，版本变化时下载固定版本的完整快照并原子替换 IndexedDB 记录。
@@ -39,9 +51,9 @@ bundle 会一起插入 `@lovstudio/dsh-plugin-marketplace/host` 与 `@lovstudio/
 
 ## 质量评估与 Agent 交接
 
-每张卡片与详情弹窗都会展示目录的质量评估：评级（S/A/B/C）、评分（0-100）与风险标记及说明。复制动作产出面向 Agent 的 Markdown：插件唯一 id（`owner/repo`）、紧凑的 `for Agent` 信息块（身份、评估、元数据、安装命令、仓库地址），以及注明当前已加载并纳入多少查询结果的批量信息块。安装与卸载就地执行：卡片与弹窗调用固定到回环地址的 `pluginManager` Remote，后者在被管理的 profile 中运行共享的 pnpm 操作；成功横幅会说明重启要求，并把操作委托给 `ctx.betterRestartUi`，由它 re-boot Host 树，再在替代连接建立后刷新页面。当有 Agent 会话正在运行时，重启仍会先弹出确认对话框（实时轮询活动状态，需勾选确认才会中断）。操作失败时，错误横幅会展示具体问题——有界的 pnpm 输出尾部、远程错误或不可直接安装的原因——并提供复制操作，把插件、命令、状态与错误文本组成 Agent 可直接消费的键值式布局，便于把失败内容粘贴到 issue 或 Agent 提示中修复。已安装徽标来自 Host 侧 `pluginInventory` remote（按包名或探测到的 npm 包名与模块名匹配）。
+每张卡片与详情弹窗都会展示目录的质量评估：评级（S/A/B/C）、评分（0-100）与风险标记及说明。复制动作产出面向 Agent 的 Markdown：插件唯一 id（`owner/repo`）、紧凑的 `for Agent` 信息块（身份、评估、元数据、安装命令、仓库地址），以及注明当前已加载并纳入多少查询结果的批量信息块。安装与卸载是直接操作。已安装徽标来自 Host 侧只读的 `pluginInventory` 投影（按包名或探测到的 npm 包名与模块名匹配）。
 
-安装与卸载是经 `pluginManager` Remote 的直接操作；变更在应用重启后生效，成功横幅通过 `better-restart-ui` client 服务请求重启。启停开关尚未实现，仍只做复制引导；已安装插件的启停属于 profile 配置界面。
+DeepSeek Harness 仍通过 `dsh plugin` CLI 统一负责 profile 的全部持久化变更。Marketplace Host 只提供两个同源且受每代随机 token 保护的动作路由；每次操作都启动当前 DSH 可执行文件的 `plugin` 模式，因此依赖安装、profile 写入与 bundle 对账继续使用官方 CLI，而不是维护第二套包管理器。成功后界面会进入共享的 Better Restart 流程。插件启停仍属于 profile 配置界面。
 
 ## 配置
 
@@ -53,7 +65,7 @@ Host 设置命名空间 `ui-plugin-market` 保存 `provider`（`dshfind` 或 `gi
 
 ## 扩展点
 
-Host 半边注册仅供本包浏览器半边使用的 `pluginMarketGithub` Remote 服务。浏览器半边不声明子槽位；其他插件可以在市场之外继续挂载 `settings.plugins.tab` 标签页或 `shell.overlay` 条目，无需改动本包。搜索管线（`parseMarketQuery`、`mergeAndRank`）导出供其他界面复用。
+Host 半边注册仅供本包浏览器半边使用的 `pluginMarketGithub` Remote 服务，以及 Marketplace 自有的动作路由。浏览器半边不声明子槽位；其他插件可以在市场之外继续挂载 `settings.plugins.tab` 标签页或 `shell.overlay` 条目，无需改动本包。搜索管线（`parseMarketQuery`、`mergeAndRank`）导出供其他界面复用。
 
 ## Model Experience
 
@@ -65,9 +77,9 @@ Host 半边注册仅供本包浏览器半边使用的 `pluginMarketGithub` Remot
 
 ## Known Limitations and Deferred Work
 
-- **安装/卸载在 Host 侧执行，需重启生效** — 安装与卸载调用固定到回环地址的 `pluginManager` Remote，它在被管理的 profile 中运行 pnpm（等价于 `dsh plugin`）并对账 profile 层列表；变更只有在应用重启后才生效，因此成功横幅把 Host re-boot 与重连后的页面刷新委托给 `ctx.betterRestartUi`。启停开关尚未实现。
+- **包变更需要重启** — 直接操作委托当前官方 `dsh plugin` CLI 更新 Web profile，但新组合的代码只有在应用重启后才生效。
 - **GitHub 跟踪 push，而非仅修改 topic** — GitHub 增量同步有意只跟随 `pushed`；只添加或移除 `dsh-plugin` 而没有再次 push、删除仓库，或只修改不伴随 push 的元数据，都不会更新或移除缓存行。手动执行 GitHub 全量初始化会重建有 push 记录的仓库，但仍不会包含从未 push 的仓库。
 - **多词投影有界** — 只有前四个正向词参与投影；最终合并顺序仍由所选目录排序决定。
 - **详情只来自快照** — 详情查询只返回完整 provider 快照中已有的字段。打开弹窗时不会请求 provider 独有的实时增长窗口，以保证普通交互离线可用。
-- **已安装徽标可能过期** — 徽标反映 Host 清单快照；它在安装/卸载成功后与 `connection/reset` 时刷新，因此在应用之外安装的插件要等下一次刷新才出现。
+- **已安装徽标可能过期** — 徽标反映当前 Host 清单，因此包操作完成后要等应用重启并重新加载清单才会出现。
 - **暂无联想下拉** — 本地联想投影已存在，但尚未接入搜索框。

@@ -32,15 +32,12 @@ export interface MarketInstallAction {
   fullName: string
   kind: 'install' | 'uninstall'
   status: 'running' | 'ok' | 'error'
-  /** Outcome code (`installed`/`uninstalled`, `pnpm exit <n>`, or a remote failure). */
+  /** Outcome code (`installed`/`uninstalled`, CLI exit, or request failure). */
   message: string
-  /** The specific failure text (bounded pnpm output tail or remote error), when the operation failed. */
+  /** The specific CLI or request failure text. */
   detail?: string
-  /** The `dsh plugin --profile <name> <verb> <package>` command a user can
-   * re-run to reproduce the operation, when the profile manager reported one. */
+  /** The official command that performed or can reproduce the action. */
   command?: string
-  /** Package names pnpm refused to build, so the banner can offer explicit approval. */
-  ignoredBuilds?: string[]
 }
 
 /** Marketplace store state. */
@@ -87,11 +84,11 @@ export interface MarketViewState {
   installedOnly: boolean
   /** The latest install/uninstall operation, or null. */
   action: MarketInstallAction | null
-  /** Whether the restart confirmation dialog is open (agents are running). */
+  /** Whether the restart confirmation dialog is open. */
   restartConfirm: boolean
-  /** Agent activity snapshot while the restart confirmation is open. */
+  /** Agent activity while restart confirmation is open. */
   restartActivity: { running: boolean; active: number } | null
-  /** Whether the activity read failed while the confirmation is open. */
+  /** Whether the activity read failed. */
   restartStatusUnavailable: boolean
 }
 

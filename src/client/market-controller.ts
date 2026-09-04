@@ -5,63 +5,40 @@
  * over it, so all three surfaces read and mutate one state source.
  */
 
-import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { MarketApi, MarketCategoryFacet } from './api.ts'
 import {
   accepts, compareMarketPlugins, mergeAndRank, parseMarketQuery, planSearch, SEARCH_TERM_FETCH_SIZE,
 } from './search.ts'
+import { installSpec, uninstallSpec } from './agent-copy.ts'
 import {
   createMarketViewState, MARKET_PAGE_SIZE, type MarketInstallAction, type MarketViewState,
 } from './market-store.ts'
+import type { PluginActionOutcome } from './plugin-actions.ts'
 import type { MarketFilters, MarketOrder, MarketRequest, MarketSort } from './types.ts'
 
-/** How often the open restart confirmation re-reads agent activity. */
+/** How often an open restart confirmation refreshes Agent activity. */
 const RESTART_STATUS_POLL_MS = 1500
 
-/** The outcome of one profile plugin operation (mirrors the wire type). */
-export interface PluginActionOutcome {
-  ok: boolean
-  exitCode: number
-  /** The `dsh plugin` command a user can re-run to reproduce the operation,
-   * when the profile manager reported one. */
-  command?: string
-  /** The specific failure text (bounded pnpm output or remote error), when the operation failed. */
-  error?: string
-  /** Package names pnpm refused to build, so the banner can offer approval. */
-  ignoredBuilds?: string[]
-}
-
-/** The outcome of approving ignored build scripts (mirrors the wire type). */
-export interface ApproveBuildsOutcome {
-  /** Whether every named package was written into `allowBuilds`. */
-  ok: boolean
-  /** The failure text when the workspace file could not be updated. */
-  error?: string
-}
-
-/** Agent activity as the restart guard reads it (mirrors the wire type). */
+/** Agent activity projected by Better Restart. */
 export interface RestartActivity {
-  /** Whether at least one agent loop is mid-turn. */
   running: boolean
-  /** Number of concurrently running agent loops. */
   active: number
 }
 
-/** External reads and mutations the controller needs (injectable for tests). */
+/** External catalog, package, and restart operations the controller needs. */
 export interface MarketPorts {
   /** The selected provider's local repository and synchronization operations. */
   api: MarketApi
   /** Read the installed plugin module names from the Host inventory remote. */
   installed: () => Promise<readonly string[]>
-  /** Install one package into the managed profile. */
-  install: (packageName: string) => Promise<PluginActionOutcome>
-  /** Uninstall one package from the managed profile. */
-  uninstall: (packageName: string) => Promise<PluginActionOutcome>
-  /** Allow the named packages' build scripts in the managed profile. */
-  approveBuilds: (packageNames: readonly string[]) => Promise<ApproveBuildsOutcome>
-  /** Current agent activity; the restart guard reads it before re-booting. */
+  /** Install one package spec through the official DSH CLI. */
+  install: (spec: string) => Promise<PluginActionOutcome>
+  /** Uninstall one package name through the official DSH CLI. */
+  uninstall: (spec: string) => Promise<PluginActionOutcome>
+  /** Read active Agent count before restart. */
   status: () => Promise<RestartActivity>
-  /** Re-boot the application tree in place (new plugins load after restart). */
+  /** Re-boot the application tree. */
   restart: () => Promise<void>
 }
 
@@ -265,160 +242,81 @@ export class MarketController {
     })
   }
 
-  /** The npm package name a catalog row installs as, when installable. */
-  private packageNameOf(state: MarketViewState, fullName: string): string | null {
+  /** Resolve the package spec for one catalog action. */
+  private actionSpec(state: MarketViewState, fullName: string, kind: 'install' | 'uninstall'): string | null {
     const row = state.items.find(plugin => plugin.fullName === fullName)
       ?? (state.detail !== null && state.detail.fullName === fullName ? state.detail : undefined)
-    if (row === undefined || row.install === undefined) return null
-    return row.install.pkgName ?? row.name
+    if (row === undefined) return null
+    return kind === 'install' ? installSpec(row) : uninstallSpec(row)
   }
 
-  /**
-   * Install one plugin into the managed profile; the change needs a restart.
-   * @param fullName - the `owner/repo` catalog id of the plugin.
-   */
+  /** Run one profile package action and publish its exact result. */
+  private runAction(kind: 'install' | 'uninstall', fullName: string): void {
+    const spec = this.actionSpec(this.store.getSnapshot(), fullName, kind)
+    if (spec === null) {
+      this.store.update((state) => {
+        state.action = { fullName, kind, status: 'error', message: 'not-installable' }
+      })
+      return
+    }
+    this.store.update((state) => {
+      state.action = { fullName, kind, status: 'running', message: '' }
+    })
+    const operation = kind === 'install' ? this.ports.install(spec) : this.ports.uninstall(spec)
+    void operation.then(
+      (result) => {
+        this.store.update((state) => {
+          const action: MarketInstallAction = {
+            fullName,
+            kind,
+            status: result.ok ? 'ok' : 'error',
+            message: result.ok ? `${kind}ed` : `dsh plugin exit ${String(result.exitCode)}`,
+            command: result.command,
+          }
+          if (!result.ok && result.error !== undefined) action.detail = result.error
+          state.action = action
+        })
+      },
+      (reason: unknown) => {
+        this.store.update((state) => {
+          state.action = {
+            fullName,
+            kind,
+            status: 'error',
+            message: 'request-failed',
+            detail: reason instanceof Error ? reason.message : String(reason),
+          }
+        })
+      },
+    )
+  }
+
+  /** Install one Marketplace package into the Web profile. */
   install(fullName: string): void {
-    const pkg = this.packageNameOf(this.store.getSnapshot(), fullName)
-    if (pkg === null) {
-      this.store.update((state) => {
-        state.action = { fullName, kind: 'install', status: 'error', message: 'not-installable' }
-      })
-      return
-    }
-    this.store.update((state) => {
-      state.action = { fullName, kind: 'install', status: 'running', message: '' }
-    })
-    void this.ports.install(pkg).then(
-      (result) => {
-        this.store.update((state) => {
-          const action: MarketInstallAction = {
-            fullName,
-            kind: 'install',
-            status: result.ok ? 'ok' : 'error',
-            message: result.ok ? 'installed' : `pnpm exit ${String(result.exitCode)}`,
-          }
-          if (result.command !== undefined) action.command = result.command
-          if (!result.ok && result.error !== undefined) action.detail = result.error
-          if (!result.ok && result.ignoredBuilds !== undefined && result.ignoredBuilds.length > 0) {
-            action.ignoredBuilds = result.ignoredBuilds
-          }
-          state.action = action
-        })
-        if (result.ok) void this.refreshInstalled()
-      },
-      (reason: unknown) => {
-        this.store.update((state) => {
-          const action: MarketInstallAction = {
-            fullName,
-            kind: 'install',
-            status: 'error',
-            message: 'remote-failed',
-          }
-          const detail = reason instanceof Error ? reason.message : String(reason)
-          if (detail !== '') action.detail = detail
-          state.action = action
-        })
-      },
-    )
+    this.runAction('install', fullName)
   }
 
-  /**
-   * Uninstall one plugin from the managed profile; the change needs a restart.
-   * @param fullName - the `owner/repo` catalog id of the plugin.
-   */
+  /** Uninstall one Marketplace package from the Web profile. */
   uninstall(fullName: string): void {
-    const pkg = this.packageNameOf(this.store.getSnapshot(), fullName)
-    if (pkg === null) {
-      this.store.update((state) => {
-        state.action = { fullName, kind: 'uninstall', status: 'error', message: 'not-installable' }
-      })
-      return
-    }
-    this.store.update((state) => {
-      state.action = { fullName, kind: 'uninstall', status: 'running', message: '' }
-    })
-    void this.ports.uninstall(pkg).then(
-      (result) => {
-        this.store.update((state) => {
-          const action: MarketInstallAction = {
-            fullName,
-            kind: 'uninstall',
-            status: result.ok ? 'ok' : 'error',
-            message: result.ok ? 'uninstalled' : `pnpm exit ${String(result.exitCode)}`,
-          }
-          if (result.command !== undefined) action.command = result.command
-          if (!result.ok && result.error !== undefined) action.detail = result.error
-          if (!result.ok && result.ignoredBuilds !== undefined && result.ignoredBuilds.length > 0) {
-            action.ignoredBuilds = result.ignoredBuilds
-          }
-          state.action = action
-        })
-        if (result.ok) void this.refreshInstalled()
-      },
-      (reason: unknown) => {
-        this.store.update((state) => {
-          const action: MarketInstallAction = {
-            fullName,
-            kind: 'uninstall',
-            status: 'error',
-            message: 'remote-failed',
-          }
-          const detail = reason instanceof Error ? reason.message : String(reason)
-          if (detail !== '') action.detail = detail
-          state.action = action
-        })
-      },
-    )
+    this.runAction('uninstall', fullName)
   }
 
-  /** Dismiss the settled install/uninstall action banner. */
+  /** Dismiss the settled package-action banner. */
   dismissAction(): void {
     this.store.update((state) => { state.action = null })
   }
 
-  /**
-   * Approve the ignored build scripts of the settled failed action and retry
-   * the install. The user approves explicitly from the banner; pnpm ≥10
-   * blocks dependency build scripts until allowed, which is the commonest
-   * reason a native-dependency plugin fails to install.
-   * @param fullName - the `owner/repo` catalog id of the failed action.
-   */
-  approveBuilds(fullName: string): void {
-    const action = this.store.getSnapshot().action
-    if (action === null || action.status !== 'error' || action.ignoredBuilds === undefined) return
-    void this.ports.approveBuilds(action.ignoredBuilds).then(
-      (result) => {
-        if (!result.ok) {
-          this.store.update((state) => {
-            if (state.action?.fullName !== fullName) return
-            state.action.detail = result.error ?? 'approve-builds failed'
-          })
-          return
-        }
-        this.install(fullName)
-      },
-      () => {
-        this.store.update((state) => {
-          if (state.action?.fullName !== fullName) return
-          state.action.detail = 'approve-builds remote failed'
-        })
-      },
-    )
-  }
-
-  /**
-   * Re-boot the application tree so profile changes take effect. When an
-   * agent conversation is mid-turn the reboot would interrupt it, so the
-   * restart is gated behind an explicit confirmation that stays open while
-   * activity is live. A failed activity read does not block the reboot — the
-   * guard is a safety nicety, not a gate.
-   */
+  /** Restart immediately when idle, otherwise open the live safety confirmation. */
   async restart(): Promise<void> {
     let activity: RestartActivity
     try {
       activity = await this.ports.status()
     } catch {
-      await this.ports.restart()
+      this.store.update((state) => {
+        state.restartConfirm = true
+        state.restartActivity = null
+        state.restartStatusUnavailable = true
+      })
       return
     }
     if (!activity.running) {
@@ -438,14 +336,12 @@ export class MarketController {
             state.restartStatusUnavailable = false
           })
         },
-        () => {
-          this.store.update((state) => { state.restartStatusUnavailable = true })
-        },
+        () => { this.store.update((state) => { state.restartStatusUnavailable = true }) },
       )
     }, RESTART_STATUS_POLL_MS)
   }
 
-  /** Confirm the pending restart: re-boot the application tree in place. */
+  /** Confirm the pending restart. */
   confirmRestart(): void {
     this.stopRestartPoll()
     this.store.update((state) => { state.restartConfirm = false })

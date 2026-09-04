@@ -1,6 +1,6 @@
 /**
- * Detail dialog of one plugin: localized copy, quality assessment, install
- * guidance, and the same copy actions as the card. Rendered by the
+ * Detail dialog of one plugin: localized copy, quality assessment, direct
+ * package action, and the same copy actions as the card. Rendered by the
  * marketplace surface as a fixed overlay; Escape and backdrop clicks close it.
  */
 
@@ -12,7 +12,7 @@ import {
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { ActionBanner, runningLabel } from './action-banner.tsx'
 import { useMarketCopyFeedback } from './copy-feedback.ts'
-import { isInstalled, pluginAgentMarkdown } from './agent-copy.ts'
+import { installCommand, installSpec, isInstalled, pluginAgentMarkdown, uninstallCommand, uninstallSpec } from './agent-copy.ts'
 import type { MarketInstallAction } from './market-store.ts'
 import type { MarketDetailInfo } from './types.ts'
 import css from './MarketplaceDetail.module.css'
@@ -27,18 +27,11 @@ export interface MarketplaceDetailProps {
   locale: 'zh' | 'en'
   /** Installed module names (uninstall action availability). */
   installed: readonly string[]
-  /** The latest install/uninstall operation, or null. */
   action: MarketInstallAction | null
-  /** Install this plugin into the managed profile. */
   onInstall: (fullName: string) => void
-  /** Uninstall this plugin from the managed profile. */
   onUninstall: (fullName: string) => void
-  /** Re-boot the application tree so profile changes take effect. */
   onRestart: () => void
-  /** Dismiss the settled action banner. */
   onDismissAction: () => void
-  /** Approve the action's ignored build scripts and retry the install. */
-  onApproveBuilds: () => void
   /** Close the dialog. */
   onClose: () => void
   /** Retry the detail load. */
@@ -56,7 +49,7 @@ function localizedOf(detail: MarketDetailInfo, locale: 'zh' | 'en'): { intro?: s
 /** Render the detail dialog. */
 export function MarketplaceDetail({
   detail, status, locale, installed, action, onInstall, onUninstall, onRestart,
-  onDismissAction, onApproveBuilds, onClose, onRetry, onOpenRepository, t,
+  onDismissAction, onClose, onRetry, onOpenRepository, t,
 }: MarketplaceDetailProps): ReactNode {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -69,6 +62,12 @@ export function MarketplaceDetail({
   const copy = detail === null ? undefined : localizedOf(detail, locale)
   const install = detail?.install
   const installedFlag = detail !== null && isInstalled(detail, installed)
+  const command = detail === null
+    ? null
+    : installedFlag ? uninstallCommand(detail) : installCommand(detail)
+  const spec = detail === null
+    ? null
+    : installedFlag ? uninstallSpec(detail) : installSpec(detail)
   const ownAction = action !== null && detail !== null && action.fullName === detail.fullName ? action : null
   const running = ownAction?.status === 'running'
   const agentCopy = useMarketCopyFeedback(detail === null ? '' : pluginAgentMarkdown(detail, locale))
@@ -164,11 +163,11 @@ export function MarketplaceDetail({
             ) : null}
 
             <div className={css.install}>
-              <span className={css.installLabel}>{t('installLabel')}</span>
-              {install === undefined ? (
+              <span className={css.installLabel}>{t('commandLabel')}</span>
+              {command === null ? (
                 <span className={css.notInstallable}>{t('notInstallable')}</span>
               ) : (
-                <code className={css.command}>{install.pkgName ?? detail.name}</code>
+                <code className={css.command}>{command}</code>
               )}
             </div>
 
@@ -185,14 +184,11 @@ export function MarketplaceDetail({
                 <button
                   type="button"
                   className={css.action}
-                  disabled={running}
-                  onClick={() => {
-                    if (installedFlag) onUninstall(detail.fullName)
-                    else onInstall(detail.fullName)
-                  }}
+                  disabled={spec === null || running}
+                  onClick={() => { if (installedFlag) onUninstall(detail.fullName); else onInstall(detail.fullName) }}
                 >
                   {installedFlag ? <IconTrashOutline16 size={14} /> : <IconDownloadOutline16 size={14} />}
-                  {ownAction !== null && ownAction.status === 'running'
+                  {running && ownAction !== null
                     ? runningLabel(ownAction, t)
                     : installedFlag ? t('uninstall') : t('install')}
                 </button>
@@ -206,13 +202,11 @@ export function MarketplaceDetail({
                 {t('openRepo')}
               </button>
             </div>
-
             {ownAction !== null && ownAction.status !== 'running' ? (
               <ActionBanner
                 action={ownAction}
                 onRestart={onRestart}
                 onDismissAction={onDismissAction}
-                onApproveBuilds={onApproveBuilds}
                 t={t}
                 css={css}
               />

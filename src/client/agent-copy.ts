@@ -28,6 +28,20 @@ export function installCommand(plugin: MarketPluginSummary): string | null {
   return plugin.install?.cmd ?? null
 }
 
+/** Resolve the single package spec of an official Web-profile install command. */
+export function installSpec(plugin: MarketPluginSummary): string | null {
+  const command = installCommand(plugin)
+  if (command === null) return null
+  const match = /^(?:dsh|npx -y @deepseek-ai\/dsh(?:@[^\s]+)?) plugin --profile web add ([^\s]+)$/.exec(command)
+  return match?.[1] ?? null
+}
+
+/** Resolve the installed dependency name used by `dsh plugin remove`. */
+export function uninstallSpec(plugin: MarketPluginSummary): string | null {
+  const name = plugin.install?.pkgName
+  return name === undefined || name.length === 0 ? null : name
+}
+
 /**
  * Derive the uninstall command from the documented install command: same
  * invocation with `add` replaced by `remove`. Null when no install command
@@ -36,9 +50,8 @@ export function installCommand(plugin: MarketPluginSummary): string | null {
  * @returns the uninstall command, or null.
  */
 export function uninstallCommand(plugin: MarketPluginSummary): string | null {
-  const cmd = installCommand(plugin)
-  if (cmd === null) return null
-  return cmd.replace(/\badd\b/, 'remove')
+  const spec = uninstallSpec(plugin)
+  return spec === null ? null : `dsh plugin --profile web remove ${spec}`
 }
 
 /** One line of the per-plugin agent block: `- key: value` when the value is present. */
