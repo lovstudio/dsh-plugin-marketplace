@@ -13,11 +13,14 @@ All three surfaces share one view store, so a search, filter, or scroll position
 
 ## Install
 
-The package is one DSH bundle containing the Host-side GitHub provider, its strict Typert Remote descriptors, the settings registration, and the browser UI. Install it into the `web` profile:
+Prerequisites: Node.js 22+ and pnpm (`npm i -g pnpm`) — `dsh plugin` forwards to pnpm inside the profile directory.
 
 ```sh
-dsh plugin --profile web add @lovstudio/dsh-plugin-marketplace
+npx @deepseek-ai/dsh plugin --profile web add github:lovstudio/dsh-plugin-marketplace#v0.1.3
+npx @deepseek-ai/dsh web
 ```
+
+`web` is the profile `dsh web` boots. The tag pins a commit whose `lib/` is prebuilt and committed, so nothing is compiled on your machine. Verified against `@deepseek-ai/dsh@0.1.2-rc.1`. Remove with `npx @deepseek-ai/dsh plugin --profile web remove @lovstudio/dsh-plugin-marketplace`.
 
 The bundle inserts `@lovstudio/dsh-plugin-marketplace/host` and `@lovstudio/dsh-plugin-marketplace` together. The browser half mounts its own `pluginMarketGithub` Remote contribution, so the plugin does not require an edit to the Harness-wide Remote assembly or a Web rebuild.
 

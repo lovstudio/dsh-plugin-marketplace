@@ -13,11 +13,14 @@
 
 ## 安装
 
-本包是一个完整 DSH bundle，同时包含 Host 侧 GitHub provider、严格 Typert Remote 描述、设置注册与浏览器 UI。安装到 `web` profile：
+前置条件：Node.js 22+ 与 pnpm（`npm i -g pnpm`）——`dsh plugin` 会在 profile 目录内调用 pnpm。
 
 ```sh
-dsh plugin --profile web add @lovstudio/dsh-plugin-marketplace
+npx @deepseek-ai/dsh plugin --profile web add github:lovstudio/dsh-plugin-marketplace#v0.1.3
+npx @deepseek-ai/dsh web
 ```
+
+`web` 就是 `dsh web` 启动的 profile。tag 固定到一个 `lib/` 已预构建并提交的 commit，本机不会编译任何东西。已在 `@deepseek-ai/dsh@0.1.2-rc.1` 上验证。卸载：`npx @deepseek-ai/dsh plugin --profile web remove @lovstudio/dsh-plugin-marketplace`。
 
 bundle 会一起插入 `@lovstudio/dsh-plugin-marketplace/host` 与 `@lovstudio/dsh-plugin-marketplace`。浏览器半边自行挂载 `pluginMarketGithub` Remote contribution，因此无需修改 Harness 全局 Remote 装配，也无需重新构建 Web。
 
