@@ -20,14 +20,14 @@
 ```sh
 git clone --depth 1 --branch dsh-v0.1.2-rc.1 https://github.com/deepseek-ai/deepseek-harness.git
 cd deepseek-harness && pnpm install && pnpm run build
-pnpm dsh plugin --profile web add github:lovstudio/dsh-plugin-marketplace#v0.1.3
+pnpm dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.3
 pnpm dsh web
 ```
 
 **不 clone（npx，只有编译后的 harness）：**
 
 ```sh
-npx @deepseek-ai/dsh plugin --profile web add github:lovstudio/dsh-plugin-marketplace#v0.1.3
+npx @deepseek-ai/dsh plugin --profile web add -w github:lovstudio/dsh-plugin-marketplace#v0.1.3
 npx @deepseek-ai/dsh web
 ```
 
@@ -42,7 +42,7 @@ bundle 会一起插入 `@lovstudio/dsh-plugin-marketplace/host` 与 `@lovstudio/
 ```sh
 pnpm install
 pnpm run watch
-DSH_HOME=/Users/mark/.dsh-lov-dev pnpm --dir /path/to/deepseek-harness dsh plugin --profile web add link:/path/to/dsh-plugin-marketplace
+DSH_HOME=/Users/mark/.dsh-lov-dev pnpm --dir /path/to/deepseek-harness dsh plugin --profile web add -w link:/path/to/dsh-plugin-marketplace
 ```
 
 Client bundle 只请求冻结的平台 module-table entries；目录 codec、`zod`、`schemastery`、`clsx` 与 CSS 均在本仓库内打包。
