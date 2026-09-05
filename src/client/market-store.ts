@@ -43,6 +43,10 @@ export interface MarketInstallAction {
   startedAt?: number
   /** True when the Host mounted the package live, so only the page needs a reload. */
   hotMounted?: boolean
+  /** The resolved spec of this action, kept so it can be retried as it ran. */
+  spec?: string
+  /** Install scripts pnpm refused to run, offered to the user to allow. */
+  buildKeys?: readonly string[]
 }
 
 /** An install held back until the user accepts a harness-compatibility warning. */
@@ -52,6 +56,8 @@ export interface MarketInstallWarning {
   /** The already-resolved package spec, reused verbatim once accepted. */
   spec: string
   mismatches: readonly { name: string; expected: string; actual: string }[]
+  /** Set when the candidate names itself into the harness scope from another owner. */
+  scopeClaim?: { name: string; owner: string }
 }
 
 /** Marketplace store state. */

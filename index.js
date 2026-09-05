@@ -279,6 +279,84 @@ function clearVerdicts(profileDir, subject) {
 	if (after.length !== before.length) writeVerdicts(profileDir, after);
 }
 //#endregion
+//#region lib/types/allow-builds.js
+/**
+* Approve the install scripts a package needs, once the user has said so.
+*
+* pnpm refuses to run a dependency's build until that exact key is allowlisted,
+* which is why a git-hosted plugin can fail with nothing installed. The keys are
+* only ever taken from pnpm's own report of the run that just failed, and only
+* written after the user asks for it: running a stranger's build script is
+* exactly the decision that must stay theirs.
+*/
+/** The pnpm errors that mean "a build was refused", newest name first. */
+const BUILD_ERRORS = ["ERR_PNPM_IGNORED_BUILDS", "ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED"];
+/** A build key as pnpm prints it: a package name, optionally with a source. */
+const BUILD_KEY = /^[@A-Za-z0-9][\w.@/+-]*(?:@[^\s,]+)?$/;
+/** The build keys one failed run refused to run, in pnpm's own spelling. */
+function refusedBuilds(output) {
+	if (!BUILD_ERRORS.some((code) => output.includes(code))) return [];
+	const keys = [];
+	const line = /Ignored build scripts:\s*([^\n]+)/g;
+	let match = line.exec(output);
+	while (match !== null) {
+		for (const raw of (match[1] ?? "").split(",")) {
+			const key = raw.trim().replace(/\.$/, "");
+			if (BUILD_KEY.test(key) && !keys.includes(key)) keys.push(key);
+		}
+		match = line.exec(output);
+	}
+	if (keys.length === 0) {
+		const named = /allowBuilds in [^\n]*\n?[^\n]*?'([^']+)'/.exec(output)?.[1];
+		if (named !== void 0 && BUILD_KEY.test(named)) keys.push(named);
+	}
+	return keys;
+}
+/** Whether a key is safe to write into the workspace file verbatim. */
+function isBuildKey(value) {
+	return typeof value === "string" && value.length > 0 && value.length <= 512 && BUILD_KEY.test(value);
+}
+/**
+* Allow the given builds in a profile's pnpm workspace file.
+* @param profileDir - the profile directory.
+* @param keys - build keys, exactly as pnpm printed them.
+* @returns whether the file now allows every key.
+*/
+function approveBuilds(profileDir, keys) {
+	const file = join(profileDir, "pnpm-workspace.yaml");
+	let content;
+	try {
+		content = readFileSync(file, "utf8");
+	} catch {
+		return false;
+	}
+	let updated = content;
+	for (const key of keys) {
+		const quoted = `'${key.replace(/'/g, "''")}'`;
+		const pending = new RegExp(`^(\\s*)(?:'${escapeRegExp(key)}'|"${escapeRegExp(key)}"|${escapeRegExp(key)}):.*$`, "m");
+		if (pending.test(updated)) {
+			updated = updated.replace(pending, (_row, indent) => `${indent}${quoted}: true`);
+			continue;
+		}
+		if (/^allowBuilds:\s*$/m.test(updated)) {
+			updated = updated.replace(/^allowBuilds:\s*$/m, `allowBuilds:\n  ${quoted}: true`);
+			continue;
+		}
+		updated = `${updated.replace(/\n*$/, "\n")}allowBuilds:\n  ${quoted}: true\n`;
+	}
+	if (updated === content) return true;
+	try {
+		writeFileSync(file, updated);
+		return true;
+	} catch {
+		return false;
+	}
+}
+/** Escape a build key for use inside a regular expression. */
+function escapeRegExp(value) {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+//#endregion
 //#region lib/types/npm-identity.js
 /**
 * Decide whether a published npm package really is a repository's plugin.
@@ -501,6 +579,22 @@ async function registryPeerRanges(spec) {
 	const picked = wanted !== void 0 && wanted in versions ? wanted : latest;
 	return picked === void 0 ? null : peerRanges(versions[picked]);
 }
+/** A candidate that names itself into the harness scope from another owner. */
+async function scopeClaim(spec) {
+	const [path, ref] = spec.slice(7).split("#");
+	const parts = (path ?? "").split("/");
+	if (parts.length !== 2 || parts.some((part) => part === "")) return void 0;
+	const owner = parts[0];
+	if (owner.toLocaleLowerCase() === "deepseek-ai") return void 0;
+	const url = `https://raw.githubusercontent.com/${owner}/${parts[1]}/${ref ?? "HEAD"}/package.json`;
+	const response = await fetch(url, { headers: { accept: "application/json" } });
+	if (!response.ok) return void 0;
+	const manifest = JSON.parse(await response.text());
+	return typeof manifest.name === "string" && manifest.name.startsWith(HARNESS_SCOPE) ? {
+		name: manifest.name,
+		owner
+	} : void 0;
+}
 /**
 * Compare the harness ranges a candidate declares against what this
 * installation ships. Only declared-and-present pairs are judged: a package the
@@ -508,14 +602,19 @@ async function registryPeerRanges(spec) {
 */
 async function checkCompatibility(spec) {
 	let ranges;
+	let claim;
 	try {
-		ranges = spec.startsWith("github:") ? await githubPeerRanges(spec) : await registryPeerRanges(spec);
+		if (spec.startsWith("github:")) {
+			ranges = await githubPeerRanges(spec);
+			claim = await scopeClaim(spec);
+		} else ranges = await registryPeerRanges(spec);
 	} catch {
 		ranges = null;
 	}
 	if (ranges === null) return {
 		mismatches: [],
-		checked: false
+		checked: false,
+		...claim === void 0 ? {} : { scopeClaim: claim }
 	};
 	const mismatches = [];
 	for (const [name, expected] of Object.entries(ranges)) {
@@ -530,7 +629,8 @@ async function checkCompatibility(spec) {
 	}
 	return {
 		mismatches,
-		checked: true
+		checked: true,
+		...claim === void 0 ? {} : { scopeClaim: claim }
 	};
 }
 /** Read one small JSON request body. */
@@ -731,11 +831,15 @@ function apply(ctx) {
 						}
 						install = resolution.spec;
 					}
+					const allowed = Array.isArray(request.allowBuilds) ? request.allowBuilds.filter(isBuildKey) : [];
+					if (allowed.length > 0) approveBuilds(dir, allowed);
 					const before = readBundles(dir);
 					const dependenciesBefore = readDependencies(dir);
 					const result = await runPluginAction(request.action, install, (next) => {
 						child = next;
 					});
+					const refused = result.ok ? [] : refusedBuilds(result.error ?? "");
+					if (refused.length > 0) result.buildKeys = refused;
 					const added = result.ok ? bundleDelta(before, readBundles(dir)).added : [];
 					const strayDependencies = result.ok && request.action === "install" && added.length === 0 ? bundleDelta(dependenciesBefore, readDependencies(dir)).added : [];
 					const failure = added.length === 0 ? null : await verifyLoadable(dir, loadSpecifiers(dir, added));

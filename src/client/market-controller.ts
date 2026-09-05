@@ -16,7 +16,7 @@ import {
 } from './market-store.ts'
 import type { GitHubMarketPackageResult } from '@lovstudio/dsh-plugin-marketplace/host'
 import {
-  pluginActionSession, type PluginActionOutcome, type PluginPeerMismatch,
+  pluginActionSession, type PluginActionOutcome, type PluginCompatibility,
 } from './plugin-actions.ts'
 import type { MarketFilters, MarketOrder, MarketRequest, MarketSort } from './types.ts'
 
@@ -36,11 +36,11 @@ export interface MarketPorts {
   /** Read the installed plugin module names from the Host inventory remote. */
   installed: () => Promise<readonly string[]>
   /** Install one package spec through the official DSH CLI. */
-  install: (spec: string, fullName?: string) => Promise<PluginActionOutcome>
+  install: (spec: string, fullName?: string, allowBuilds?: readonly string[]) => Promise<PluginActionOutcome>
   /** Uninstall one package name through the official DSH CLI. */
   uninstall: (spec: string, fullName?: string) => Promise<PluginActionOutcome>
   /** Report the harness peer ranges one candidate spec would violate. */
-  checkCompatibility: (spec: string) => Promise<readonly PluginPeerMismatch[]>
+  checkCompatibility: (spec: string) => Promise<PluginCompatibility>
   /** Read active Agent count before restart. */
   status: () => Promise<RestartActivity>
   /** Re-boot the application tree. */
@@ -73,6 +73,16 @@ function needsMerge(parsed: ReturnType<typeof parseMarketQuery>): boolean {
  * taken at request start — a later search, filter, or sort invalidates every
  * in-flight list request.
  */
+/** Name why one package action failed, for the banner to translate. */
+function failureMessage(result: PluginActionOutcome): string {
+  if (result.buildKeys !== undefined && result.buildKeys.length > 0) return 'needs-build-approval'
+  if (result.needsManual === true) return 'needs-manual'
+  if (result.notPlugin === true) return result.rolledBack === true ? 'not-plugin' : 'not-plugin-stuck'
+  if (result.rolledBack === true) return 'load-failed'
+  if (result.rolledBack === false) return 'load-failed-stuck'
+  return `dsh plugin exit ${String(result.exitCode)}`
+}
+
 export class MarketController {
   /** The uSES-safe state source bound into every register's `useView`. */
   readonly store: SnapshotStore<MarketViewState> = createSnapshotStore(createMarketViewState())
@@ -307,11 +317,16 @@ export class MarketController {
       // pnpm cannot judge these ranges — the harness ships the packages beside
       // the launcher, so a violated peer reaches the browser as a link-time
       // SyntaxError that takes down every plugin at once.
-      const mismatches = await this.ports.checkCompatibility(spec)
-      if (mismatches.length > 0) {
+      const { mismatches, scopeClaim } = await this.ports.checkCompatibility(spec)
+      if (mismatches.length > 0 || scopeClaim !== undefined) {
         this.store.update((state) => {
           state.action = null
-          state.installWarning = { fullName, spec, mismatches }
+          state.installWarning = {
+            fullName,
+            spec,
+            mismatches,
+            ...scopeClaim === undefined ? {} : { scopeClaim },
+          }
         })
         return
       }
@@ -319,14 +334,15 @@ export class MarketController {
     await this.performAction(kind, fullName, spec)
   }
 
-  /** Delegate one resolved spec to the CLI and publish its exact result. */
+/** Delegate one resolved spec to the CLI and publish its exact result. */
   private async performAction(
     kind: 'install' | 'uninstall',
     fullName: string,
     spec: string,
+    allowBuilds?: readonly string[],
   ): Promise<void> {
     const operation = kind === 'install'
-      ? this.ports.install(spec, fullName)
+      ? this.ports.install(spec, fullName, allowBuilds)
       : this.ports.uninstall(spec, fullName)
     await operation.then(
       (result) => {
@@ -335,20 +351,14 @@ export class MarketController {
             fullName,
             kind,
             status: result.ok ? 'ok' : 'error',
-            message: result.ok
-              ? `${kind}ed`
-              : result.needsManual === true
-                ? 'needs-manual'
-                : result.notPlugin === true
-                ? result.rolledBack === true ? 'not-plugin' : 'not-plugin-stuck'
-                : result.rolledBack === true
-                  ? 'load-failed'
-                  : result.rolledBack === false
-                    ? 'load-failed-stuck'
-                    : `dsh plugin exit ${String(result.exitCode)}`,
+            message: result.ok ? `${kind}ed` : failureMessage(result),
             command: result.command,
           }
           if (!result.ok && result.error !== undefined) action.detail = result.error
+          if (result.buildKeys !== undefined && result.buildKeys.length > 0) {
+            action.buildKeys = result.buildKeys
+            action.spec = spec
+          }
           if (result.hotMounted === true) action.hotMounted = true
           // Why a successful install still wants a restart belongs on the banner:
           // otherwise the fallback is indistinguishable from the feature failing.
@@ -545,6 +555,19 @@ export class MarketController {
         })
       },
     )
+  }
+
+  /**
+   * Run the held-back install again with its refused build scripts allowed.
+   * Only the keys pnpm itself reported travel back, and only on this click.
+   */
+  async approveBuilds(): Promise<void> {
+    const action = this.store.getSnapshot().action
+    if (action?.buildKeys === undefined || action.spec === undefined) return
+    this.store.update((state) => {
+      state.action = { ...action, status: 'running', message: '', startedAt: Date.now() }
+    })
+    await this.performAction('install', action.fullName, action.spec, action.buildKeys)
   }
 
   /** Clear the latest star failure. */

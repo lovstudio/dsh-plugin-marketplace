@@ -46,6 +46,8 @@ export interface MarketplaceCardProps {
   onInstall: (fullName: string) => void
   onUninstall: (fullName: string) => void
   onRestart: () => void
+  /** Allow the install scripts pnpm refused, then retry. */
+  onApproveBuilds: () => void
   onDismissAction: () => void
   /** Open the detail dialog. */
   onDetails: (fullName: string) => void
@@ -66,7 +68,7 @@ function badgeLabel(t: MarketplaceCardProps['t'], plugin: MarketPluginSummary): 
 /** Render one marketplace card. */
 export function MarketplaceCard({
   plugin, installed, verdicts, locale, action, restartMode, canStar, starred, starBusy, onToggleStar,
-  onInstall, onUninstall, onRestart, onDismissAction, onDetails, onOpenRepository, t,
+  onInstall, onUninstall, onRestart, onApproveBuilds, onDismissAction, onDetails, onOpenRepository, t,
 }: MarketplaceCardProps): ReactNode {
   const [menuOpen, setMenuOpen] = useState(false)
   const idCopy = useMarketCopyFeedback(plugin.fullName)
@@ -187,6 +189,7 @@ export function MarketplaceCard({
           action={ownAction}
           restartMode={restartMode}
           onRestart={onRestart}
+          onApproveBuilds={onApproveBuilds}
           onDismissAction={onDismissAction}
           t={t}
           css={css}

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.16 - 2026-09-05
+
+- Offer to allow the install scripts pnpm refused, instead of handing over its error. A git-hosted plugin whose dependency builds on install fails with `ERR_PNPM_IGNORED_BUILDS` and nothing installed; the banner now names the exact keys pnpm reported and runs the install again once **允许并重试** is clicked. Only those keys are written, and only on that click — running a stranger's build script stays the user's decision.
+- Warn when a package claims a name in the harness's own `@deepseek-ai/` scope while coming from somebody else's repository. A fork of the harness reads as a core package in every listing until someone looks at its source, so the pre-install dialog now names the owner and asks for confirmation.
+
 ## 0.1.15 - 2026-09-05
 
 - Install what a repository actually publishes. A catalog row is a repository, but a repository is not always a package: `maddogfinance/dsh-trading` is a private workspace root whose bundle patch mounts workspace packages a git install never brings, so installing the row could only fail. The install now reads the root manifest, and for a private root takes the package its README documents — verified to name that repository as its source and to declare a DSH bundle — so the card installs `@dsh-trading/bundle` and mounts it live. A private root with nothing published to match still installs as itself when it carries a bundle patch; when it does not, the row is marked **需按文档安装** and the banner says to follow the README.

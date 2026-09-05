@@ -341,14 +341,18 @@ function CompatibilityDialog({
   onCancel: () => void
   t: Translate
 }): ReactNode {
-  const rows = warning.mismatches.map(peer => t('compatRow', peer))
+  const claim = warning.scopeClaim
+  const rows = [
+    ...claim === undefined ? [] : [`${claim.name} ${t('scopeClaimRow', claim)}`],
+    ...warning.mismatches.map(peer => t('compatRow', peer)),
+  ]
   const copy = useMarketCopyFeedback([`${warning.fullName} (${warning.spec})`, ...rows].join('\n'))
   return (
     <Modal
       open
       onClose={onCancel}
-      title={t('compatTitle')}
-      description={t('compatSummary')}
+      title={claim === undefined ? t('compatTitle') : t('scopeClaimTitle')}
+      description={claim === undefined ? t('compatSummary') : t('scopeClaimSummary')}
       footer={(
         <>
           <Button variant="outline" onClick={copy.onCopy}>
@@ -360,6 +364,12 @@ function CompatibilityDialog({
       )}
     >
       <ul className={css.mismatchList}>
+        {claim === undefined ? null : (
+          <li key={claim.name}>
+            <span className={css.mismatchName}>{claim.name}</span>
+            <span className={css.mismatchVersions}>{t('scopeClaimRow', claim)}</span>
+          </li>
+        )}
         {warning.mismatches.map(peer => (
           <li key={peer.name}>
             <span className={css.mismatchName}>{peer.name}</span>
@@ -564,6 +574,7 @@ export function MarketplaceRoot({ controller, useView, locale, t }: MarketplaceR
             onInstall={(fullName) => { controller.install(fullName) }}
             onUninstall={(fullName) => { controller.uninstall(fullName) }}
             onRestart={() => { void controller.restart() }}
+            onApproveBuilds={() => { void controller.approveBuilds() }}
             onDismissAction={() => { controller.dismissAction() }}
             onDetails={(fullName) => { controller.openDetail(fullName) }}
             onOpenRepository={openRepository}
@@ -638,6 +649,7 @@ export function MarketplaceRoot({ controller, useView, locale, t }: MarketplaceR
           onInstall={(fullName) => { controller.install(fullName) }}
           onUninstall={(fullName) => { controller.uninstall(fullName) }}
           onRestart={() => { void controller.restart() }}
+          onApproveBuilds={() => { void controller.approveBuilds() }}
           onDismissAction={() => { controller.dismissAction() }}
           onClose={() => { controller.closeDetail() }}
           /* v8 ignore next -- the dialog renders only while selected is set. */

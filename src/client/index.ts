@@ -159,7 +159,7 @@ function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
       const response = await ctx.remote.pluginMarketGithub.setStar({ fullName, starred })
       if (!response.ok) throw new Error(response.error.message)
     },
-    install: async (spec, fullName) => runPluginAction('install', spec, fullName),
+    install: async (spec, fullName, allowBuilds) => runPluginAction('install', spec, fullName, allowBuilds),
     uninstall: async (spec, fullName) => runPluginAction('uninstall', spec, fullName),
     checkCompatibility: async (spec) => checkPluginCompatibility(spec),
     status: () => restartUi()?.status() ?? Promise.resolve({ running: false, active: 0 }),

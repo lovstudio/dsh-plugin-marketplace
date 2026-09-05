@@ -14,6 +14,7 @@ import {
 } from './hot-mount.ts'
 import { verifyLoadable } from './load-check.ts'
 import { clearVerdicts, readVerdicts, recordVerdict } from './load-report.ts'
+import { approveBuilds, isBuildKey, refusedBuilds } from './allow-builds.ts'
 import { resolveRepositorySpec } from './repo-install.ts'
 import { MARKET_SETTINGS_NAMESPACE, MarketSettingsSchema } from './market-settings.ts'
 
@@ -61,6 +62,8 @@ interface PluginActionRequest {
   spec?: unknown
   /** `owner/repository` of the row the action came from, for the row marks. */
   fullName?: unknown
+  /** Build keys the user chose to allow, from a previous refusal of this install. */
+  allowBuilds?: unknown
 }
 
 interface PluginActionResult {
@@ -82,6 +85,8 @@ interface PluginActionResult {
   notPlugin?: boolean
   /** True when the repository has to be installed the way its README documents. */
   needsManual?: boolean
+  /** Install scripts pnpm refused to run, in its own spelling, for the user to allow. */
+  buildKeys?: string[]
 }
 
 interface CompatibilityRequest {
@@ -102,6 +107,12 @@ interface CompatibilityResult {
   mismatches: PeerMismatch[]
   /** False when the candidate manifest could not be read, so nothing was checked. */
   checked: boolean
+  /**
+   * Set when the package claims a name in the harness's own scope while coming
+   * from somebody else's repository — a fork of the harness reads as a core
+   * package in every listing until someone looks at its source.
+   */
+  scopeClaim?: { name: string; owner: string }
 }
 
 /** Keep only the diagnostic tail returned to the browser. */
@@ -191,6 +202,22 @@ async function registryPeerRanges(spec: string): Promise<Record<string, string> 
   return picked === undefined ? null : peerRanges(versions[picked])
 }
 
+/** A candidate that names itself into the harness scope from another owner. */
+async function scopeClaim(spec: string): Promise<{ name: string; owner: string } | undefined> {
+  const [path, ref] = spec.slice('github:'.length).split('#')
+  const parts = (path ?? '').split('/')
+  if (parts.length !== 2 || parts.some(part => part === '')) return undefined
+  const owner = parts[0]!
+  if (owner.toLocaleLowerCase() === 'deepseek-ai') return undefined
+  const url = `https://raw.githubusercontent.com/${owner}/${parts[1]!}/${ref ?? 'HEAD'}/package.json`
+  const response = await fetch(url, { headers: { accept: 'application/json' } })
+  if (!response.ok) return undefined
+  const manifest = JSON.parse(await response.text()) as { name?: unknown }
+  return typeof manifest.name === 'string' && manifest.name.startsWith(HARNESS_SCOPE)
+    ? { name: manifest.name, owner }
+    : undefined
+}
+
 /**
  * Compare the harness ranges a candidate declares against what this
  * installation ships. Only declared-and-present pairs are judged: a package the
@@ -198,12 +225,18 @@ async function registryPeerRanges(spec: string): Promise<Record<string, string> 
  */
 async function checkCompatibility(spec: string): Promise<CompatibilityResult> {
   let ranges: Record<string, string> | null
+  let claim: { name: string; owner: string } | undefined
   try {
-    ranges = spec.startsWith('github:') ? await githubPeerRanges(spec) : await registryPeerRanges(spec)
+    if (spec.startsWith('github:')) {
+      ranges = await githubPeerRanges(spec)
+      claim = await scopeClaim(spec)
+    } else {
+      ranges = await registryPeerRanges(spec)
+    }
   } catch {
     ranges = null
   }
-  if (ranges === null) return { mismatches: [], checked: false }
+  if (ranges === null) return { mismatches: [], checked: false, ...claim === undefined ? {} : { scopeClaim: claim } }
   const mismatches: PeerMismatch[] = []
   for (const [name, expected] of Object.entries(ranges)) {
     if (!name.startsWith(HARNESS_SCOPE)) continue
@@ -215,7 +248,7 @@ async function checkCompatibility(spec: string): Promise<CompatibilityResult> {
       mismatches.push({ name, expected, actual })
     }
   }
-  return { mismatches, checked: true }
+  return { mismatches, checked: true, ...claim === undefined ? {} : { scopeClaim: claim } }
 }
 
 /** Read one small JSON request body. */
@@ -413,9 +446,15 @@ export function apply(ctx: Context): void {
             }
             install = resolution.spec
           }
+          // Only keys pnpm itself reported, and only after the user asked for
+          // them: this is what makes a stranger's build script run.
+          const allowed = Array.isArray(request.allowBuilds) ? request.allowBuilds.filter(isBuildKey) : []
+          if (allowed.length > 0) approveBuilds(dir, allowed)
           const before = readBundles(dir)
           const dependenciesBefore = readDependencies(dir)
           const result = await runPluginAction(request.action, install, (next) => { child = next })
+          const refused = result.ok ? [] : refusedBuilds(result.error ?? '')
+          if (refused.length > 0) result.buildKeys = refused
           const added = result.ok ? bundleDelta(before, readBundles(dir)).added : []
           // A package that registered no bundle is not a plugin — most often an
           // unrelated npm package that merely shares the repository's name. The

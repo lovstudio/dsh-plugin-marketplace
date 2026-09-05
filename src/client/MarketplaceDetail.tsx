@@ -43,6 +43,8 @@ export interface MarketplaceDetailProps {
   onInstall: (fullName: string) => void
   onUninstall: (fullName: string) => void
   onRestart: () => void
+  /** Allow the install scripts pnpm refused, then retry. */
+  onApproveBuilds: () => void
   onDismissAction: () => void
   /** Close the dialog. */
   onClose: () => void
@@ -61,7 +63,7 @@ function localizedOf(detail: MarketDetailInfo, locale: 'zh' | 'en'): { intro?: s
 /** Render the detail dialog. */
 export function MarketplaceDetail({
   detail, status, locale, installed, action, restartMode, canStar, starred, starBusy, onToggleStar,
-  onInstall, onUninstall, onRestart, onDismissAction, onClose, onRetry, onOpenRepository, t,
+  onInstall, onUninstall, onRestart, onApproveBuilds, onDismissAction, onClose, onRetry, onOpenRepository, t,
 }: MarketplaceDetailProps): ReactNode {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -234,6 +236,7 @@ export function MarketplaceDetail({
                 restartMode={restartMode}
                 action={ownAction}
                 onRestart={onRestart}
+                onApproveBuilds={onApproveBuilds}
                 onDismissAction={onDismissAction}
                 t={t}
                 css={css}

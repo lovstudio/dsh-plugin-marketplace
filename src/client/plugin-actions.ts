@@ -19,6 +19,22 @@ export interface PluginActionOutcome {
   notPlugin?: boolean
   /** True when this repository installs only the way its README documents. */
   needsManual?: boolean
+  /** Install scripts pnpm refused to run, for the user to allow explicitly. */
+  buildKeys?: readonly string[]
+}
+
+/** A candidate naming itself into the harness scope from another owner. */
+export interface PluginScopeClaim {
+  /** The package name it declares, inside the harness scope. */
+  name: string
+  /** The GitHub owner actually publishing it. */
+  owner: string
+}
+
+/** What the Host found out about a candidate before it is installed. */
+export interface PluginCompatibility {
+  mismatches: readonly PluginPeerMismatch[]
+  scopeClaim?: PluginScopeClaim
 }
 
 /** One harness package whose installed version violates a declared peer range. */
@@ -98,7 +114,7 @@ export function resetPluginActionToken(): void {
 export async function checkPluginCompatibility(
   spec: string,
   retryToken = true,
-): Promise<readonly PluginPeerMismatch[]> {
+): Promise<PluginCompatibility> {
   let response: Response
   try {
     response = await fetch(COMPATIBILITY_PATH, {
@@ -107,19 +123,27 @@ export async function checkPluginCompatibility(
       body: JSON.stringify({ token: (await pluginActionSession()).token, spec }),
     })
   } catch {
-    return []
+    return { mismatches: [] }
   }
   if (response.status === 400 && retryToken) {
     resetPluginActionToken()
     return checkPluginCompatibility(spec, false)
   }
-  if (!response.ok) return []
-  const body = await response.json().catch(() => null) as { mismatches?: unknown } | null
-  if (!Array.isArray(body?.mismatches)) return []
-  return body.mismatches.filter((row): row is PluginPeerMismatch => {
-    const peer = row as Partial<PluginPeerMismatch> | null
-    return typeof peer?.name === 'string' && typeof peer.expected === 'string' && typeof peer.actual === 'string'
-  })
+  if (!response.ok) return { mismatches: [] }
+  const body = await response.json().catch(() => null) as { mismatches?: unknown; scopeClaim?: unknown } | null
+  const mismatches = Array.isArray(body?.mismatches)
+    ? body.mismatches.filter((row): row is PluginPeerMismatch => {
+      const peer = row as Partial<PluginPeerMismatch> | null
+      return typeof peer?.name === 'string' && typeof peer.expected === 'string' && typeof peer.actual === 'string'
+    })
+    : []
+  const claim = body?.scopeClaim as Partial<PluginScopeClaim> | null | undefined
+  return {
+    mismatches,
+    ...typeof claim?.name === 'string' && typeof claim.owner === 'string'
+      ? { scopeClaim: { name: claim.name, owner: claim.owner } }
+      : {},
+  }
 }
 
 /** Delegate one install or uninstall to the current official DSH CLI. */
@@ -127,6 +151,7 @@ export async function runPluginAction(
   action: 'install' | 'uninstall',
   spec: string,
   fullName?: string,
+  allowBuilds?: readonly string[],
   retryToken = true,
 ): Promise<PluginActionOutcome> {
   const response = await fetch(ACTION_PATH, {
@@ -140,11 +165,12 @@ export async function runPluginAction(
       action,
       spec,
       ...fullName === undefined ? {} : { fullName },
+      ...allowBuilds === undefined || allowBuilds.length === 0 ? {} : { allowBuilds },
     }),
   })
   if (response.status === 400 && retryToken) {
     resetPluginActionToken()
-    return runPluginAction(action, spec, fullName, false)
+    return runPluginAction(action, spec, fullName, allowBuilds, false)
   }
   const body = await response.json() as Partial<PluginActionOutcome> & { error?: unknown }
   if (!response.ok) {
@@ -163,5 +189,8 @@ export async function runPluginAction(
     ...typeof body.rolledBack === 'boolean' ? { rolledBack: body.rolledBack } : {},
     ...body.notPlugin === true ? { notPlugin: true } : {},
     ...body.needsManual === true ? { needsManual: true } : {},
+    ...Array.isArray(body.buildKeys) && body.buildKeys.every(key => typeof key === 'string')
+      ? { buildKeys: body.buildKeys as string[] }
+      : {},
   }
 }

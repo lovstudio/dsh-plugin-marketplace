@@ -38,12 +38,14 @@ function errorCopyText(action: MarketInstallAction): string {
 
 /** Render one settled package action and its next step. */
 export function ActionBanner({
-  action, restartMode, onRestart, onDismissAction, t, css,
+  action, restartMode, onRestart, onApproveBuilds, onDismissAction, t, css,
 }: {
   action: MarketInstallAction
   /** `manual` when the launcher exposes no in-place restart. */
   restartMode: 'service' | 'manual'
   onRestart: () => void
+  /** Allow the install scripts pnpm refused, then retry the install. */
+  onApproveBuilds: () => void
   onDismissAction: () => void
   t: PropsLocale<'pluginMarket'>['t']
   css: Record<string, string>
@@ -77,7 +79,11 @@ export function ActionBanner({
               ? t('notPlugin')
               : action.message === 'not-plugin-stuck'
                 ? t('notPluginStuck')
-                : action.message === 'needs-manual' ? t('needsManual') : t('actionFailed')
+                : action.message === 'needs-manual'
+                  ? t('needsManual')
+                  : action.message === 'needs-build-approval'
+                    ? t('needsBuildApproval', { keys: (action.buildKeys ?? []).join(', ') })
+                    : t('actionFailed')
   return (
     <div className={css.actionBanner} data-tone={success ? 'ok' : 'error'} role="status">
       <span className={css.actionText}>{text}</span>
@@ -92,6 +98,14 @@ export function ActionBanner({
         </button>
       ) : success ? (
         <button type="button" className={css.action} onClick={onRestart}>{t('restart')}</button>
+      ) : action.message === 'needs-build-approval' ? (
+        <>
+          <button type="button" className={css.action} onClick={onApproveBuilds}>{t('approveBuilds')}</button>
+          <button type="button" className={css.action} onClick={errorCopy.onCopy} aria-label={t('copyError')}>
+            <IconCopyOutline16 size={14} />
+            {errorCopy.copied ? t('copied') : t('copyError')}
+          </button>
+        </>
       ) : (
         <button type="button" className={css.action} onClick={errorCopy.onCopy} aria-label={t('copyError')}>
           <IconCopyOutline16 size={14} />
