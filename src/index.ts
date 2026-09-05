@@ -9,8 +9,9 @@ import satisfies from 'semver/functions/satisfies.js'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-settings'
 import {
-  bundleDelta, hotMount, hotUnmount, readBundles, resolveProfileDir, type LoaderLike,
+  bundleDelta, bundleEntries, hotMount, hotUnmount, readBundles, resolveProfileDir, type LoaderLike,
 } from './hot-mount.ts'
+import { verifyLoadable } from './load-check.ts'
 import { MARKET_SETTINGS_NAMESPACE, MarketSettingsSchema } from './market-settings.ts'
 
 export {
@@ -66,6 +67,12 @@ interface PluginActionResult {
   hotMounted?: boolean
   /** Why a restart is still needed, when the change could not be mounted live. */
   hotMountNote?: string
+  /**
+   * Set when the package installed but could not be linked. True when the
+   * install was undone, false when undoing it failed and the profile is still
+   * carrying a package that will abort the next boot.
+   */
+  rolledBack?: boolean
 }
 
 interface CompatibilityRequest {
@@ -263,6 +270,19 @@ function runPluginAction(
   })
 }
 
+/** The module specifiers the profile would import for one installed package. */
+function loadSpecifiers(profileDir: string, packages: readonly string[]): string[] {
+  const specifiers: string[] = []
+  for (const pkg of packages) {
+    // A patch this cannot read still installs an entry named after the package,
+    // which is what the loader imports in the common case.
+    const entries = bundleEntries(profileDir, pkg)
+    if (entries === null) specifiers.push(pkg)
+    else for (const entry of entries) specifiers.push(entry.name)
+  }
+  return [...new Set(specifiers)]
+}
+
 /**
  * Reflect one settled package change in the running Loader tree.
  * @returns whether every changed package took effect, and why it did not.
@@ -350,9 +370,28 @@ export function apply(ctx: Context): void {
         }
         running = true
         try {
-          const before = readBundles(resolveProfileDir(activeProfile()))
+          const dir = resolveProfileDir(activeProfile())
+          const before = readBundles(dir)
           const result = await runPluginAction(request.action, spec, (next) => { child = next })
-          if (result.ok) {
+          const added = result.ok ? bundleDelta(before, readBundles(dir)).added : []
+          // A plugin built against an older harness installs cleanly and then
+          // aborts the whole tree at ESM link time, taking the launcher down
+          // with it. Undo it here, while there is still a page to say so on.
+          const failure = added.length === 0 ? null : await verifyLoadable(dir, loadSpecifiers(dir, added))
+          if (failure !== null) {
+            const undone: string[] = []
+            for (const pkg of added) {
+              const undo = await runPluginAction('uninstall', pkg, (next) => { child = next })
+              if (!undo.ok) undone.push(`dsh plugin --profile ${activeProfile()} remove -w ${pkg}`)
+            }
+            result.ok = false
+            result.rolledBack = undone.length === 0
+            result.error = [
+              `${failure.specifier} cannot be loaded by this harness:`,
+              failure.detail,
+              ...undone.length === 0 ? [] : ['', 'Removing it failed too — run this before the next start:', ...undone],
+            ].join('\n')
+          } else if (result.ok) {
             const live = await applyHotMount(ctx, before)
             result.hotMounted = live.hotMounted
             if (live.note !== undefined) result.hotMountNote = live.note

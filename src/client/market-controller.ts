@@ -333,7 +333,13 @@ export class MarketController {
             fullName,
             kind,
             status: result.ok ? 'ok' : 'error',
-            message: result.ok ? `${kind}ed` : `dsh plugin exit ${String(result.exitCode)}`,
+            message: result.ok
+              ? `${kind}ed`
+              : result.rolledBack === true
+                ? 'load-failed'
+                : result.rolledBack === false
+                  ? 'load-failed-stuck'
+                  : `dsh plugin exit ${String(result.exitCode)}`,
             command: result.command,
           }
           if (!result.ok && result.error !== undefined) action.detail = result.error

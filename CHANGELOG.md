@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.13 - 2026-09-05
+
+- Verify that a freshly installed plugin can actually be loaded, and undo the install when it cannot. A plugin built against an older harness installs cleanly and then fails at ESM link time, which aborts the entire plugin tree: the next `dsh web` dies before serving anything, taking away the very page that could remove it. The check imports the plugin's entry in a throwaway child process — the same link step, tens of milliseconds — and reports the linker's own error with a copy action. If undoing the install also fails, the banner carries the exact `dsh plugin remove` command to run before the next start.
+
 ## 0.1.12 - 2026-09-05
 
 - Keep the search field and the result counts in place while the catalog scrolls. Both surfaces the marketplace mounts on — the overlay and the Settings plugins tab — pin the same two rows, so a search or a filter is always one click away in a 13k-row list.

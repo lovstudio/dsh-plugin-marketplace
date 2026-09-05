@@ -10,6 +10,11 @@ export interface PluginActionOutcome {
   hotMounted?: boolean
   /** Why the Host could not mount it live, when it could not. */
   hotMountNote?: string
+  /**
+   * Present when the package installed but could not be linked: true when the
+   * Host undid the install, false when undoing it failed too.
+   */
+  rolledBack?: boolean
 }
 
 /** One harness package whose installed version violates a declared peer range. */
@@ -119,5 +124,6 @@ export async function runPluginAction(
     ...typeof body.error === 'string' ? { error: body.error } : {},
     ...body.hotMounted === true ? { hotMounted: true } : {},
     ...typeof body.hotMountNote === 'string' ? { hotMountNote: body.hotMountNote } : {},
+    ...typeof body.rolledBack === 'boolean' ? { rolledBack: body.rolledBack } : {},
   }
 }

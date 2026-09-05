@@ -145,6 +145,77 @@ async function hotUnmount(loader, pkg) {
 	return true;
 }
 //#endregion
+//#region lib/types/load-check.js
+/**
+* Check that a freshly installed package can actually be imported.
+*
+* A plugin compiled against an older harness fails when ESM links it, not when
+* pnpm installs it — and that failure aborts the whole plugin tree, so the next
+* `dsh web` dies before serving anything. The launcher is then unreachable, and
+* with it every UI that could undo the install. Importing the entry in a
+* throwaway child process reproduces exactly that link step, cheaply (tens of
+* milliseconds) and without touching the running tree, which lets the caller
+* roll the install back while the user is still looking at the page.
+*/
+/** How long one import may take before it counts as unloadable. */
+const IMPORT_TIMEOUT = 3e4;
+/** Diagnostic tail kept from a failed import. */
+const OUTPUT_LIMIT = 4096;
+/** Import one module the way the launcher would, in a child process. */
+function importOnce(profileDir, specifier) {
+	return new Promise((resolve) => {
+		const child = spawn(process.execPath, [
+			"--input-type=module",
+			"-e",
+			`await import(${JSON.stringify(specifier)})`,
+			process.argv[1] ?? ""
+		], {
+			cwd: profileDir,
+			env: process.env,
+			stdio: [
+				"ignore",
+				"ignore",
+				"pipe"
+			]
+		});
+		let output = "";
+		child.stderr?.on("data", (chunk) => {
+			output = (output + chunk.toString("utf8")).slice(0, OUTPUT_LIMIT);
+		});
+		const timer = setTimeout(() => {
+			child.kill("SIGKILL");
+		}, IMPORT_TIMEOUT);
+		timer.unref?.();
+		child.once("error", (error) => {
+			clearTimeout(timer);
+			resolve({
+				specifier,
+				detail: error.message
+			});
+		});
+		child.once("close", (code, signal) => {
+			clearTimeout(timer);
+			if (code === 0) resolve(null);
+			else if (signal === "SIGKILL") resolve({
+				specifier,
+				detail: `import did not settle within ${IMPORT_TIMEOUT / 1e3}s`
+			});
+			else resolve({
+				specifier,
+				detail: output.trim() === "" ? `import exited with code ${String(code)}` : output.trim()
+			});
+		});
+	});
+}
+/** The first module that cannot be linked, or null when all of them can. */
+async function verifyLoadable(profileDir, specifiers) {
+	for (const specifier of specifiers) {
+		const failure = await importOnce(profileDir, specifier);
+		if (failure !== null) return failure;
+	}
+	return null;
+}
+//#endregion
 //#region lib/types/market-settings.js
 /** Durable plugin-market synchronization preferences. */
 /** Provider ids with complete initialization and incremental implementations. */
@@ -356,6 +427,16 @@ function runPluginAction(action, spec, setChild) {
 		});
 	});
 }
+/** The module specifiers the profile would import for one installed package. */
+function loadSpecifiers(profileDir, packages) {
+	const specifiers = [];
+	for (const pkg of packages) {
+		const entries = bundleEntries(profileDir, pkg);
+		if (entries === null) specifiers.push(pkg);
+		else for (const entry of entries) specifiers.push(entry.name);
+	}
+	return [...new Set(specifiers)];
+}
 /**
 * Reflect one settled package change in the running Loader tree.
 * @returns whether every changed package took effect, and why it did not.
@@ -438,11 +519,30 @@ function apply(ctx) {
 				}
 				running = true;
 				try {
-					const before = readBundles(resolveProfileDir(activeProfile()));
+					const dir = resolveProfileDir(activeProfile());
+					const before = readBundles(dir);
 					const result = await runPluginAction(request.action, spec, (next) => {
 						child = next;
 					});
-					if (result.ok) {
+					const added = result.ok ? bundleDelta(before, readBundles(dir)).added : [];
+					const failure = added.length === 0 ? null : await verifyLoadable(dir, loadSpecifiers(dir, added));
+					if (failure !== null) {
+						const undone = [];
+						for (const pkg of added) if (!(await runPluginAction("uninstall", pkg, (next) => {
+							child = next;
+						})).ok) undone.push(`dsh plugin --profile ${activeProfile()} remove -w ${pkg}`);
+						result.ok = false;
+						result.rolledBack = undone.length === 0;
+						result.error = [
+							`${failure.specifier} cannot be loaded by this harness:`,
+							failure.detail,
+							...undone.length === 0 ? [] : [
+								"",
+								"Removing it failed too — run this before the next start:",
+								...undone
+							]
+						].join("\n");
+					} else if (result.ok) {
 						const live = await applyHotMount(ctx, before);
 						result.hotMounted = live.hotMounted;
 						if (live.note !== void 0) result.hotMountNote = live.note;

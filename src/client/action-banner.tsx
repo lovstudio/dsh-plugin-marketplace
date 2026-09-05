@@ -23,7 +23,9 @@ export function runningLabel(
 function errorCopyText(action: MarketInstallAction): string {
   const what = action.message === 'restart-failed'
     ? 'Restart'
-    : action.kind === 'install' ? 'Install' : 'Uninstall'
+    : action.message === 'load-failed' || action.message === 'load-failed-stuck'
+      ? 'Load'
+      : action.kind === 'install' ? 'Install' : 'Uninstall'
   return [
     `${what} failed: ${action.fullName}`,
     action.command === undefined ? null : `Command: ${action.command}`,
@@ -63,7 +65,11 @@ export function ActionBanner({
         : action.kind === 'install' ? t('installSuccess') : t('uninstallSuccess')
     : action.message === 'not-installable'
       ? t('notInstallable')
-      : action.message === 'restart-failed' ? t('restartFailed') : t('actionFailed')
+      : action.message === 'restart-failed'
+        ? t('restartFailed')
+        : action.message === 'load-failed'
+          ? t('loadFailed')
+          : action.message === 'load-failed-stuck' ? t('loadFailedStuck') : t('actionFailed')
   return (
     <div className={css.actionBanner} data-tone={success ? 'ok' : 'error'} role="status">
       <span className={css.actionText}>{text}</span>
