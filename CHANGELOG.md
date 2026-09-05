@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.15 - 2026-09-05
+
+- Install what a repository actually publishes. A catalog row is a repository, but a repository is not always a package: `maddogfinance/dsh-trading` is a private workspace root whose bundle patch mounts workspace packages a git install never brings, so installing the row could only fail. The install now reads the root manifest, and for a private root takes the package its README documents — verified to name that repository as its source and to declare a DSH bundle — so the card installs `@dsh-trading/bundle` and mounts it live. A private root with nothing published to match still installs as itself when it carries a bundle patch; when it does not, the row is marked **需按文档安装** and the banner says to follow the README.
+
 ## 0.1.14 - 2026-09-05
 
 - Stop installing a stranger's package. A repository's install was traded for the npm package of the same name on the strength of that name existing, but npm names are global and first-come: `github:maddogfinance/dsh-trading` installed `dsh-trading@0.0.1`, which belongs to another repository entirely and is not a plugin. The published package is now used only when it names this repository as its source and declares a DSH bundle; otherwise the repository spec installs.

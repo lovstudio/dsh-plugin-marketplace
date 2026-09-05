@@ -17,6 +17,8 @@ export interface PluginActionOutcome {
   rolledBack?: boolean
   /** True when the package installed but registered no plugin. */
   notPlugin?: boolean
+  /** True when this repository installs only the way its README documents. */
+  needsManual?: boolean
 }
 
 /** One harness package whose installed version violates a declared peer range. */
@@ -41,7 +43,7 @@ export interface PluginVerdict {
   /** The spec the recorded action used. */
   spec: string
   /** Why the package was marked: unloadable, stale ranges, or not a plugin at all. */
-  kind: 'load' | 'peer' | 'not-plugin'
+  kind: 'load' | 'peer' | 'not-plugin' | 'manual'
   reason: string
   /** ISO 8601 timestamp of the finding. */
   at: string
@@ -73,7 +75,8 @@ export async function pluginActionSession(): Promise<PluginActionSession> {
       ? body.verdicts.filter((row): row is PluginVerdict => {
         const verdict = row as Partial<PluginVerdict> | null
         return typeof verdict?.spec === 'string'
-          && (verdict.kind === 'load' || verdict.kind === 'peer' || verdict.kind === 'not-plugin')
+          && (verdict.kind === 'load' || verdict.kind === 'peer'
+            || verdict.kind === 'not-plugin' || verdict.kind === 'manual')
           && typeof verdict.reason === 'string' && typeof verdict.at === 'string'
       })
       : []
@@ -159,5 +162,6 @@ export async function runPluginAction(
     ...typeof body.hotMountNote === 'string' ? { hotMountNote: body.hotMountNote } : {},
     ...typeof body.rolledBack === 'boolean' ? { rolledBack: body.rolledBack } : {},
     ...body.notPlugin === true ? { notPlugin: true } : {},
+    ...body.needsManual === true ? { needsManual: true } : {},
   }
 }

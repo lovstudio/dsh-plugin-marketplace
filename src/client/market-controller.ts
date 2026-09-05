@@ -337,7 +337,9 @@ export class MarketController {
             status: result.ok ? 'ok' : 'error',
             message: result.ok
               ? `${kind}ed`
-              : result.notPlugin === true
+              : result.needsManual === true
+                ? 'needs-manual'
+                : result.notPlugin === true
                 ? result.rolledBack === true ? 'not-plugin' : 'not-plugin-stuck'
                 : result.rolledBack === true
                   ? 'load-failed'
@@ -356,9 +358,11 @@ export class MarketController {
           state.action = action
           // Mark the row now: the Host wrote the same verdict to the profile,
           // and the session that would carry it back is fetched once.
-          const kindOfVerdict = result.notPlugin === true
-            ? 'not-plugin'
-            : result.rolledBack === undefined ? null : 'load'
+          const kindOfVerdict = result.needsManual === true
+            ? 'manual'
+            : result.notPlugin === true
+              ? 'not-plugin'
+              : result.rolledBack === undefined ? null : 'load'
           if (kindOfVerdict !== null) {
             state.verdicts = [
               { spec, row: fullName, kind: kindOfVerdict, reason: result.error ?? '', at: new Date().toISOString() },

@@ -111,7 +111,9 @@ export function MarketplaceCard({
             >
               {verdict.kind === 'not-plugin'
                 ? t('notPluginBadge')
-                : verdict.kind === 'peer' ? t('peerBadge') : t('unloadableBadge')}
+                : verdict.kind === 'manual'
+                  ? t('manualBadge')
+                  : verdict.kind === 'peer' ? t('peerBadge') : t('unloadableBadge')}
             </span>
           )}
         </span>

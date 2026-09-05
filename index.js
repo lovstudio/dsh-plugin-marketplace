@@ -250,7 +250,7 @@ function readVerdicts(profileDir) {
 	if (!Array.isArray(parsed)) return [];
 	return parsed.filter((row) => {
 		const verdict = row;
-		return typeof verdict?.spec === "string" && (verdict.kind === "load" || verdict.kind === "peer" || verdict.kind === "not-plugin") && typeof verdict.reason === "string" && typeof verdict.at === "string";
+		return typeof verdict?.spec === "string" && (verdict.kind === "load" || verdict.kind === "peer" || verdict.kind === "not-plugin" || verdict.kind === "manual") && typeof verdict.reason === "string" && typeof verdict.at === "string";
 	});
 }
 /** Persist verdicts, silently: a report is a convenience, never a blocker. */
@@ -277,6 +277,126 @@ function clearVerdicts(profileDir, subject) {
 	const before = readVerdicts(profileDir);
 	const after = before.filter((verdict) => !sameSubject(verdict, subject));
 	if (after.length !== before.length) writeVerdicts(profileDir, after);
+}
+//#endregion
+//#region lib/types/npm-identity.js
+/**
+* Decide whether a published npm package really is a repository's plugin.
+*
+* npm names are global and first-come while repository names are not, so a name
+* that resolves on the registry proves nothing about who published it: the
+* repository `maddogfinance/dsh-trading` shares its name with an unrelated
+* `dsh-trading` package. Two facts settle it — the package points back at the
+* repository, and it mounts itself as a DSH bundle.
+*/
+/** Read one package's published manifest at `latest`, or null. */
+async function fetchPublished(name) {
+	const path = name.split("/").map(encodeURIComponent).join("/");
+	try {
+		const response = await fetch(`https://registry.npmjs.org/${path}/latest`, { headers: { accept: "application/json" } });
+		if (!response.ok) return null;
+		return JSON.parse(await response.text());
+	} catch {
+		return null;
+	}
+}
+/** The `owner/repository` a manifest's repository field points at. */
+function publishedRepository(published) {
+	const field = published.repository;
+	const url = typeof field === "string" ? field : field?.url;
+	if (typeof url !== "string") return null;
+	const match = /github\.com[/:]([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?(?:[#/?].*)?$/.exec(url);
+	return match === null ? null : `${match[1]}/${match[2]}`;
+}
+/** Whether the published package names this repository as its source. */
+function publishedFromRepository(published, fullName) {
+	const declared = publishedRepository(published);
+	return declared !== null && declared.toLocaleLowerCase() === fullName.toLocaleLowerCase();
+}
+/** Whether a manifest mounts itself as a DSH bundle. */
+function declaresBundle(published) {
+	const patch = published.dsh?.bundle?.patch;
+	return typeof patch === "string" && patch.length > 0;
+}
+//#endregion
+//#region lib/types/repo-install.js
+/**
+* Work out what a repository row actually installs.
+*
+* A catalog row is a repository, but a repository is not always a package. The
+* common shape that breaks is a monorepo whose root manifest is `private` and
+* whose plugin ships as one of its published packages — installing the
+* repository then either fails outright or lands a root that mounts nothing.
+* The author already wrote the right command in the README, so read it there,
+* verify the package really belongs to this repository, and install that.
+*/
+/** Where a repository's README may live, in the order worth trying. */
+const README_FILES = [
+	"README.md",
+	"README.zh.md",
+	"README.zh-CN.md",
+	"readme.md"
+];
+/** Read one file from a repository's default branch. */
+async function readRepositoryFile(fullName, file) {
+	try {
+		const response = await fetch(`https://raw.githubusercontent.com/${fullName}/HEAD/${file}`, { headers: { accept: "text/plain" } });
+		return response.ok ? await response.text() : null;
+	} catch {
+		return null;
+	}
+}
+/** Package specs the README documents for `dsh plugin add`, in order. */
+function documentedPackages(readme) {
+	const specs = [];
+	const line = /dsh plugin[^\n]*?\badd\b([^\n]*)/g;
+	let match = line.exec(readme);
+	while (match !== null) {
+		for (const word of (match[1] ?? "").split(/\s+/)) {
+			if (word.length === 0 || word.startsWith("-") || word.startsWith(".")) continue;
+			if (word.startsWith("github:") || word.startsWith("link:") || word.startsWith("`")) continue;
+			const spec = word.replace(/[`'",;\\]/g, "");
+			if (/^@?[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(spec) && !specs.includes(spec)) specs.push(spec);
+		}
+		match = line.exec(readme);
+	}
+	return specs;
+}
+/**
+* Resolve what a `github:owner/repo` install should really run.
+* @param fullName - `owner/repository` of the row.
+* @param spec - the repository spec the catalog documented.
+* @returns the spec to install, or why nothing can be.
+*/
+async function resolveRepositorySpec(fullName, spec) {
+	const manifest = await readRepositoryFile(fullName, "package.json");
+	if (manifest === null) return { spec };
+	let root;
+	try {
+		root = JSON.parse(manifest);
+	} catch {
+		return { spec };
+	}
+	if (root.private !== true) return { spec };
+	for (const file of README_FILES) {
+		const readme = await readRepositoryFile(fullName, file);
+		if (readme === null) continue;
+		for (const candidate of documentedPackages(readme)) {
+			const published = await fetchPublished(candidate);
+			if (published === null) continue;
+			if (publishedFromRepository(published, fullName) && declaresBundle(published)) return {
+				spec: candidate,
+				documented: candidate
+			};
+		}
+		break;
+	}
+	if (declaresBundle(root)) return { spec };
+	return { unusable: [
+		`${fullName} is a private workspace root: it declares no dsh.bundle.patch, so installing the`,
+		"repository mounts nothing. Its plugin ships as a published package instead, and this could not",
+		"find which one — follow the install command in the repository README."
+	].join("\n") };
 }
 //#endregion
 //#region lib/types/market-settings.js
@@ -588,9 +708,32 @@ function apply(ctx) {
 				running = true;
 				try {
 					const dir = resolveProfileDir(activeProfile());
+					const row = rowIdentity(request.fullName);
+					let install = spec;
+					if (request.action === "install" && spec.startsWith("github:") && row !== void 0) {
+						const resolution = await resolveRepositorySpec(row, spec);
+						if ("unusable" in resolution) {
+							recordVerdict(dir, {
+								row,
+								spec,
+								kind: "manual",
+								reason: resolution.unusable,
+								at: (/* @__PURE__ */ new Date()).toISOString()
+							});
+							writeJson(res, 200, {
+								ok: false,
+								exitCode: 0,
+								command: `dsh plugin --profile ${activeProfile()} add -w ${spec}`,
+								needsManual: true,
+								error: resolution.unusable
+							});
+							return;
+						}
+						install = resolution.spec;
+					}
 					const before = readBundles(dir);
 					const dependenciesBefore = readDependencies(dir);
-					const result = await runPluginAction(request.action, spec, (next) => {
+					const result = await runPluginAction(request.action, install, (next) => {
 						child = next;
 					});
 					const added = result.ok ? bundleDelta(before, readBundles(dir)).added : [];
@@ -606,14 +749,14 @@ function apply(ctx) {
 						result.rolledBack = undone.length === 0;
 						recordVerdict(dir, {
 							name: strayDependencies[0],
-							...rowIdentity(request.fullName) === void 0 ? {} : { row: rowIdentity(request.fullName) },
-							spec,
+							...row === void 0 ? {} : { row },
+							spec: install,
 							kind: "not-plugin",
 							reason: `${strayDependencies.join(", ")} installed but declares no dsh.bundle.patch, so nothing was mounted`,
 							at: (/* @__PURE__ */ new Date()).toISOString()
 						});
 						result.error = [
-							`${spec} installed ${strayDependencies.join(", ")}, which is not a DSH plugin:`,
+							`${install} installed ${strayDependencies.join(", ")}, which is not a DSH plugin:`,
 							"it declares no dsh.bundle.patch, so the profile mounted nothing.",
 							...undone.length === 0 ? [] : [
 								"",
@@ -630,8 +773,8 @@ function apply(ctx) {
 						result.rolledBack = undone.length === 0;
 						recordVerdict(dir, {
 							...added[0] === void 0 ? {} : { name: added[0] },
-							...rowIdentity(request.fullName) === void 0 ? {} : { row: rowIdentity(request.fullName) },
-							spec,
+							...row === void 0 ? {} : { row },
+							spec: install,
 							kind: "load",
 							reason: `${failure.specifier}: ${failure.detail.split("\n").slice(0, 6).join("\n")}`,
 							at: (/* @__PURE__ */ new Date()).toISOString()
@@ -647,8 +790,8 @@ function apply(ctx) {
 						].join("\n");
 					} else if (result.ok) {
 						if (request.action === "install") clearVerdicts(dir, {
-							spec,
-							...rowIdentity(request.fullName) === void 0 ? {} : { row: rowIdentity(request.fullName) }
+							spec: install,
+							...row === void 0 ? {} : { row }
 						});
 						const live = await applyHotMount(ctx, before);
 						result.hotMounted = live.hotMounted;

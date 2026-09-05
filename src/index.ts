@@ -14,6 +14,7 @@ import {
 } from './hot-mount.ts'
 import { verifyLoadable } from './load-check.ts'
 import { clearVerdicts, readVerdicts, recordVerdict } from './load-report.ts'
+import { resolveRepositorySpec } from './repo-install.ts'
 import { MARKET_SETTINGS_NAMESPACE, MarketSettingsSchema } from './market-settings.ts'
 
 export {
@@ -79,6 +80,8 @@ interface PluginActionResult {
   rolledBack?: boolean
   /** True when the installed package registered no plugin at all. */
   notPlugin?: boolean
+  /** True when the repository has to be installed the way its README documents. */
+  needsManual?: boolean
 }
 
 interface CompatibilityRequest {
@@ -384,9 +387,35 @@ export function apply(ctx: Context): void {
         running = true
         try {
           const dir = resolveProfileDir(activeProfile())
+          const row = rowIdentity(request.fullName)
+          // A repository row is not always a package: a private workspace root
+          // mounts nothing, and the plugin it holds ships as a published
+          // package its README names. Install that instead of the root.
+          let install = spec
+          if (request.action === 'install' && spec.startsWith('github:') && row !== undefined) {
+            const resolution = await resolveRepositorySpec(row, spec)
+            if ('unusable' in resolution) {
+              recordVerdict(dir, {
+                row,
+                spec,
+                kind: 'manual',
+                reason: resolution.unusable,
+                at: new Date().toISOString(),
+              })
+              writeJson(res, 200, {
+                ok: false,
+                exitCode: 0,
+                command: `dsh plugin --profile ${activeProfile()} add -w ${spec}`,
+                needsManual: true,
+                error: resolution.unusable,
+              })
+              return
+            }
+            install = resolution.spec
+          }
           const before = readBundles(dir)
           const dependenciesBefore = readDependencies(dir)
-          const result = await runPluginAction(request.action, spec, (next) => { child = next })
+          const result = await runPluginAction(request.action, install, (next) => { child = next })
           const added = result.ok ? bundleDelta(before, readBundles(dir)).added : []
           // A package that registered no bundle is not a plugin — most often an
           // unrelated npm package that merely shares the repository's name. The
@@ -410,14 +439,14 @@ export function apply(ctx: Context): void {
             result.rolledBack = undone.length === 0
             recordVerdict(dir, {
               name: strayDependencies[0]!,
-              ...rowIdentity(request.fullName) === undefined ? {} : { row: rowIdentity(request.fullName)! },
-              spec,
+              ...row === undefined ? {} : { row },
+              spec: install,
               kind: 'not-plugin',
               reason: `${strayDependencies.join(', ')} installed but declares no dsh.bundle.patch, so nothing was mounted`,
               at: new Date().toISOString(),
             })
             result.error = [
-              `${spec} installed ${strayDependencies.join(', ')}, which is not a DSH plugin:`,
+              `${install} installed ${strayDependencies.join(', ')}, which is not a DSH plugin:`,
               'it declares no dsh.bundle.patch, so the profile mounted nothing.',
               ...undone.length === 0 ? [] : ['', 'Removing it failed too — run this before the next start:', ...undone],
             ].join('\n')
@@ -431,8 +460,8 @@ export function apply(ctx: Context): void {
             result.rolledBack = undone.length === 0
             recordVerdict(dir, {
               ...added[0] === undefined ? {} : { name: added[0] },
-              ...rowIdentity(request.fullName) === undefined ? {} : { row: rowIdentity(request.fullName)! },
-              spec,
+              ...row === undefined ? {} : { row },
+              spec: install,
               kind: 'load',
               reason: `${failure.specifier}: ${failure.detail.split('\n').slice(0, 6).join('\n')}`,
               at: new Date().toISOString(),
@@ -446,10 +475,7 @@ export function apply(ctx: Context): void {
             // It installed and it loads: whatever this package was marked for
             // no longer holds.
             if (request.action === 'install') {
-              clearVerdicts(dir, {
-                spec,
-                ...rowIdentity(request.fullName) === undefined ? {} : { row: rowIdentity(request.fullName)! },
-              })
+              clearVerdicts(dir, { spec: install, ...row === undefined ? {} : { row } })
             }
             const live = await applyHotMount(ctx, before)
             result.hotMounted = live.hotMounted

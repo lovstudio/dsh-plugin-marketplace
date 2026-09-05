@@ -75,7 +75,9 @@ export function ActionBanner({
             ? t('loadFailedStuck')
             : action.message === 'not-plugin'
               ? t('notPlugin')
-              : action.message === 'not-plugin-stuck' ? t('notPluginStuck') : t('actionFailed')
+              : action.message === 'not-plugin-stuck'
+                ? t('notPluginStuck')
+                : action.message === 'needs-manual' ? t('needsManual') : t('actionFailed')
   return (
     <div className={css.actionBanner} data-tone={success ? 'ok' : 'error'} role="status">
       <span className={css.actionText}>{text}</span>

@@ -20,7 +20,7 @@ export interface PackageVerdict {
   /** The spec the action used, which identifies rows no module name matches. */
   spec: string
   /** Why the package was marked: unloadable, stale ranges, or not a plugin at all. */
-  kind: 'load' | 'peer' | 'not-plugin'
+  kind: 'load' | 'peer' | 'not-plugin' | 'manual'
   /** The failure, verbatim where the linker produced it. */
   reason: string
   /** When this was found, ISO 8601. */
@@ -46,7 +46,8 @@ export function readVerdicts(profileDir: string): PackageVerdict[] {
   return parsed.filter((row): row is PackageVerdict => {
     const verdict = row as Partial<PackageVerdict> | null
     return typeof verdict?.spec === 'string'
-      && (verdict.kind === 'load' || verdict.kind === 'peer' || verdict.kind === 'not-plugin')
+      && (verdict.kind === 'load' || verdict.kind === 'peer'
+        || verdict.kind === 'not-plugin' || verdict.kind === 'manual')
       && typeof verdict.reason === 'string'
       && typeof verdict.at === 'string'
   })

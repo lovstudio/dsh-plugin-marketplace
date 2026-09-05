@@ -3,6 +3,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { declaresBundle, publishedFromRepository } from '../npm-identity.ts'
 import type {
   GitHubMarketCredentialProbeRequest, GitHubMarketCredentialProbeResult,
   GitHubMarketPackageRequest, GitHubMarketPackageResult,
@@ -58,27 +59,6 @@ function repositoryPath(fullName: string): string {
     throw new Error(`GitHub repository name is invalid: ${fullName}`)
   }
   return fullName
-}
-
-/** The `owner/repository` a published manifest's repository field points at. */
-function publishedRepository(published: { repository?: unknown }): string | null {
-  const field = published.repository
-  const url = typeof field === 'string' ? field : (field as { url?: unknown } | null)?.url
-  if (typeof url !== 'string') return null
-  const match = /github\.com[/:]([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?(?:[#/?].*)?$/.exec(url)
-  return match === null ? null : `${match[1]!}/${match[2]!}`
-}
-
-/** Whether the published package names this repository as its source. */
-function publishedFromRepository(published: { repository?: unknown }, fullName: string): boolean {
-  const declared = publishedRepository(published)
-  return declared !== null && declared.toLocaleLowerCase() === fullName.toLocaleLowerCase()
-}
-
-/** Whether the published package mounts itself as a DSH bundle. */
-function declaresBundle(published: { dsh?: unknown }): boolean {
-  const patch = (published.dsh as { bundle?: { patch?: unknown } } | null)?.bundle?.patch
-  return typeof patch === 'string' && patch.length > 0
 }
 
 /** Validate one GitHub search row at the external JSON boundary. */
