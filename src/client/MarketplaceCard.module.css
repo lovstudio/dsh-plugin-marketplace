@@ -74,7 +74,8 @@
 }
 
 .badge,
-.installed {
+.installed,
+.verdict {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -95,6 +96,14 @@
 .installed {
   background: var(--dsw-alias-state-success-secondary);
   color: var(--dsw-alias-label-primary);
+}
+
+/* What this profile already learned about the row: the reason lives in the
+   tooltip, so the mark itself stays as short as the others. */
+.verdict {
+  background: var(--dsw-alias-state-warn-secondary);
+  color: var(--dsw-alias-label-primary);
+  cursor: help;
 }
 
 .metaRow {

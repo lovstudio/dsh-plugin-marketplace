@@ -9,9 +9,11 @@ import satisfies from 'semver/functions/satisfies.js'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-settings'
 import {
-  bundleDelta, bundleEntries, hotMount, hotUnmount, readBundles, resolveProfileDir, type LoaderLike,
+  bundleDelta, bundleEntries, hotMount, hotUnmount, readBundles, readDependencies,
+  resolveProfileDir, type LoaderLike,
 } from './hot-mount.ts'
 import { verifyLoadable } from './load-check.ts'
+import { clearVerdicts, readVerdicts, recordVerdict } from './load-report.ts'
 import { MARKET_SETTINGS_NAMESPACE, MarketSettingsSchema } from './market-settings.ts'
 
 export {
@@ -56,6 +58,8 @@ interface PluginActionRequest {
   token?: unknown
   action?: unknown
   spec?: unknown
+  /** `owner/repository` of the row the action came from, for the row marks. */
+  fullName?: unknown
 }
 
 interface PluginActionResult {
@@ -73,6 +77,8 @@ interface PluginActionResult {
    * carrying a package that will abort the next boot.
    */
   rolledBack?: boolean
+  /** True when the installed package registered no plugin at all. */
+  notPlugin?: boolean
 }
 
 interface CompatibilityRequest {
@@ -106,6 +112,11 @@ function activeProfile(): string {
   if (args[0] === 'web') return 'web'
   const index = args.indexOf('--profile')
   return index >= 0 && args[index + 1] !== undefined ? args[index + 1]! : 'web'
+}
+
+/** Accept one `owner/repository`, the identity a marketplace row carries. */
+function rowIdentity(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(value) ? value : undefined
 }
 
 /** Accept one shell-free package spec supported by pnpm. */
@@ -341,7 +352,9 @@ export function apply(ctx: Context): void {
         // Launchers without `appRestart` cannot reboot themselves, so the
         // client must offer manual instructions instead of a dead button.
         const restart = ctx.get('appRestart') === undefined ? 'manual' : 'service'
-        writeJson(res, 200, { token, restart })
+        // Verdicts ride along with the session so rows carry their mark from
+        // the first paint, without a second round trip.
+        writeJson(res, 200, { token, restart, verdicts: readVerdicts(resolveProfileDir(activeProfile())) })
       },
     })
     const removeAction = webServer.register({
@@ -372,13 +385,43 @@ export function apply(ctx: Context): void {
         try {
           const dir = resolveProfileDir(activeProfile())
           const before = readBundles(dir)
+          const dependenciesBefore = readDependencies(dir)
           const result = await runPluginAction(request.action, spec, (next) => { child = next })
           const added = result.ok ? bundleDelta(before, readBundles(dir)).added : []
+          // A package that registered no bundle is not a plugin — most often an
+          // unrelated npm package that merely shares the repository's name. The
+          // dependency is inert but real, so undo it rather than reporting an
+          // install that changed nothing.
+          const strayDependencies = result.ok && request.action === 'install' && added.length === 0
+            ? bundleDelta(dependenciesBefore, readDependencies(dir)).added
+            : []
           // A plugin built against an older harness installs cleanly and then
           // aborts the whole tree at ESM link time, taking the launcher down
           // with it. Undo it here, while there is still a page to say so on.
           const failure = added.length === 0 ? null : await verifyLoadable(dir, loadSpecifiers(dir, added))
-          if (failure !== null) {
+          if (strayDependencies.length > 0) {
+            const undone: string[] = []
+            for (const pkg of strayDependencies) {
+              const undo = await runPluginAction('uninstall', pkg, (next) => { child = next })
+              if (!undo.ok) undone.push(`dsh plugin --profile ${activeProfile()} remove -w ${pkg}`)
+            }
+            result.ok = false
+            result.notPlugin = true
+            result.rolledBack = undone.length === 0
+            recordVerdict(dir, {
+              name: strayDependencies[0]!,
+              ...rowIdentity(request.fullName) === undefined ? {} : { row: rowIdentity(request.fullName)! },
+              spec,
+              kind: 'not-plugin',
+              reason: `${strayDependencies.join(', ')} installed but declares no dsh.bundle.patch, so nothing was mounted`,
+              at: new Date().toISOString(),
+            })
+            result.error = [
+              `${spec} installed ${strayDependencies.join(', ')}, which is not a DSH plugin:`,
+              'it declares no dsh.bundle.patch, so the profile mounted nothing.',
+              ...undone.length === 0 ? [] : ['', 'Removing it failed too — run this before the next start:', ...undone],
+            ].join('\n')
+          } else if (failure !== null) {
             const undone: string[] = []
             for (const pkg of added) {
               const undo = await runPluginAction('uninstall', pkg, (next) => { child = next })
@@ -386,12 +429,28 @@ export function apply(ctx: Context): void {
             }
             result.ok = false
             result.rolledBack = undone.length === 0
+            recordVerdict(dir, {
+              ...added[0] === undefined ? {} : { name: added[0] },
+              ...rowIdentity(request.fullName) === undefined ? {} : { row: rowIdentity(request.fullName)! },
+              spec,
+              kind: 'load',
+              reason: `${failure.specifier}: ${failure.detail.split('\n').slice(0, 6).join('\n')}`,
+              at: new Date().toISOString(),
+            })
             result.error = [
               `${failure.specifier} cannot be loaded by this harness:`,
               failure.detail,
               ...undone.length === 0 ? [] : ['', 'Removing it failed too — run this before the next start:', ...undone],
             ].join('\n')
           } else if (result.ok) {
+            // It installed and it loads: whatever this package was marked for
+            // no longer holds.
+            if (request.action === 'install') {
+              clearVerdicts(dir, {
+                spec,
+                ...rowIdentity(request.fullName) === undefined ? {} : { row: rowIdentity(request.fullName)! },
+              })
+            }
             const live = await applyHotMount(ctx, before)
             result.hotMounted = live.hotMounted
             if (live.note !== undefined) result.hotMountNote = live.note
@@ -422,7 +481,18 @@ export function apply(ctx: Context): void {
           writeJson(res, 400, { error: 'invalid compatibility request' })
           return
         }
-        writeJson(res, 200, await checkCompatibility(spec))
+        const compatibility = await checkCompatibility(spec)
+        if (compatibility.mismatches.length > 0) {
+          recordVerdict(resolveProfileDir(activeProfile()), {
+            spec,
+            kind: 'peer',
+            reason: compatibility.mismatches
+              .map(peer => `${peer.name}: needs ${peer.expected}, harness ships ${peer.actual}`)
+              .join('\n'),
+            at: new Date().toISOString(),
+          })
+        }
+        writeJson(res, 200, compatibility)
       },
     })
     return () => {

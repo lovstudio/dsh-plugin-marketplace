@@ -79,6 +79,18 @@ export function readBundles(profileDir: string): string[] {
   }
 }
 
+/** Dependency names the profile manifest declares. */
+export function readDependencies(profileDir: string): string[] {
+  try {
+    const manifest = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8')) as {
+      dependencies?: Record<string, unknown>
+    }
+    return Object.keys(manifest.dependencies ?? {})
+  } catch {
+    return []
+  }
+}
+
 /** Bundle names the profile manifest gained or lost across one CLI run. */
 export function bundleDelta(before: readonly string[], after: readonly string[]): {
   added: string[]

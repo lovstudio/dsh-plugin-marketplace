@@ -36,9 +36,9 @@ export interface MarketPorts {
   /** Read the installed plugin module names from the Host inventory remote. */
   installed: () => Promise<readonly string[]>
   /** Install one package spec through the official DSH CLI. */
-  install: (spec: string) => Promise<PluginActionOutcome>
+  install: (spec: string, fullName?: string) => Promise<PluginActionOutcome>
   /** Uninstall one package name through the official DSH CLI. */
-  uninstall: (spec: string) => Promise<PluginActionOutcome>
+  uninstall: (spec: string, fullName?: string) => Promise<PluginActionOutcome>
   /** Report the harness peer ranges one candidate spec would violate. */
   checkCompatibility: (spec: string) => Promise<readonly PluginPeerMismatch[]>
   /** Read active Agent count before restart. */
@@ -325,7 +325,9 @@ export class MarketController {
     fullName: string,
     spec: string,
   ): Promise<void> {
-    const operation = kind === 'install' ? this.ports.install(spec) : this.ports.uninstall(spec)
+    const operation = kind === 'install'
+      ? this.ports.install(spec, fullName)
+      : this.ports.uninstall(spec, fullName)
     await operation.then(
       (result) => {
         this.store.update((state) => {
@@ -335,11 +337,13 @@ export class MarketController {
             status: result.ok ? 'ok' : 'error',
             message: result.ok
               ? `${kind}ed`
-              : result.rolledBack === true
-                ? 'load-failed'
-                : result.rolledBack === false
-                  ? 'load-failed-stuck'
-                  : `dsh plugin exit ${String(result.exitCode)}`,
+              : result.notPlugin === true
+                ? result.rolledBack === true ? 'not-plugin' : 'not-plugin-stuck'
+                : result.rolledBack === true
+                  ? 'load-failed'
+                  : result.rolledBack === false
+                    ? 'load-failed-stuck'
+                    : `dsh plugin exit ${String(result.exitCode)}`,
             command: result.command,
           }
           if (!result.ok && result.error !== undefined) action.detail = result.error
@@ -350,6 +354,17 @@ export class MarketController {
             action.detail = result.hotMountNote
           }
           state.action = action
+          // Mark the row now: the Host wrote the same verdict to the profile,
+          // and the session that would carry it back is fetched once.
+          const kindOfVerdict = result.notPlugin === true
+            ? 'not-plugin'
+            : result.rolledBack === undefined ? null : 'load'
+          if (kindOfVerdict !== null) {
+            state.verdicts = [
+              { spec, row: fullName, kind: kindOfVerdict, reason: result.error ?? '', at: new Date().toISOString() },
+              ...state.verdicts.filter(verdict => verdict.spec !== spec),
+            ]
+          }
         })
         // The inventory decides the installed badge and the uninstall spec.
         if (result.ok) void this.refreshInstalled()
@@ -535,8 +550,11 @@ export class MarketController {
 
   /** Learn whether this launcher can restart itself, before offering to. */
   async refreshRestartMode(): Promise<void> {
-    const { restart } = await pluginActionSession()
-    this.store.update((state) => { state.restartMode = restart })
+    const { restart, verdicts } = await pluginActionSession()
+    this.store.update((state) => {
+      state.restartMode = restart
+      state.verdicts = verdicts
+    })
   }
 
   /** Refresh the installed module-name set from the Host inventory remote. */

@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import satisfies from "semver/functions/satisfies.js";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -55,6 +55,15 @@ function readBundles(profileDir) {
 	try {
 		const bundles = JSON.parse(readFileSync(join(profileDir, "package.json"), "utf8")).dsh?.profile?.bundles;
 		return Array.isArray(bundles) ? bundles.filter((name) => typeof name === "string") : [];
+	} catch {
+		return [];
+	}
+}
+/** Dependency names the profile manifest declares. */
+function readDependencies(profileDir) {
+	try {
+		const manifest = JSON.parse(readFileSync(join(profileDir, "package.json"), "utf8"));
+		return Object.keys(manifest.dependencies ?? {});
 	} catch {
 		return [];
 	}
@@ -216,6 +225,60 @@ async function verifyLoadable(profileDir, specifiers) {
 	return null;
 }
 //#endregion
+//#region lib/types/load-report.js
+/**
+* Remember what this harness already learned about a package.
+*
+* A verdict is expensive to reach — an install that had to be undone, or a
+* manifest fetched from the registry — and it stays true until the package or
+* the harness changes. Keeping it next to the profile lets the marketplace mark
+* the row on every later visit, including after a restart, instead of letting
+* the user rediscover the same failure one install at a time.
+*/
+/** Verdicts of one profile, keyed by spec. */
+const REPORT_FILE = "plugin-market-report.json";
+/** How many verdicts to keep, newest first. */
+const REPORT_LIMIT = 200;
+/** Read the verdicts recorded for one profile. */
+function readVerdicts(profileDir) {
+	let parsed;
+	try {
+		parsed = JSON.parse(readFileSync(join(profileDir, REPORT_FILE), "utf8"));
+	} catch {
+		return [];
+	}
+	if (!Array.isArray(parsed)) return [];
+	return parsed.filter((row) => {
+		const verdict = row;
+		return typeof verdict?.spec === "string" && (verdict.kind === "load" || verdict.kind === "peer" || verdict.kind === "not-plugin") && typeof verdict.reason === "string" && typeof verdict.at === "string";
+	});
+}
+/** Persist verdicts, silently: a report is a convenience, never a blocker. */
+function writeVerdicts(profileDir, verdicts) {
+	try {
+		writeFileSync(join(profileDir, REPORT_FILE), `${JSON.stringify(verdicts.slice(0, REPORT_LIMIT), null, 2)}\n`);
+	} catch {}
+}
+/**
+* Whether two verdicts describe the same subject. Module names are deliberately
+* not compared: npm names are global while repository names are not, so several
+* unrelated rows can carry the same one.
+*/
+function sameSubject(a, b) {
+	if (a.spec === b.spec) return true;
+	return a.row !== void 0 && b.row !== void 0 && a.row.toLocaleLowerCase() === b.row.toLocaleLowerCase();
+}
+/** Record one verdict, replacing whatever was known about that package. */
+function recordVerdict(profileDir, verdict) {
+	writeVerdicts(profileDir, [verdict, ...readVerdicts(profileDir).filter((row) => !sameSubject(row, verdict))]);
+}
+/** Forget every verdict about a package, after it installed and loaded. */
+function clearVerdicts(profileDir, subject) {
+	const before = readVerdicts(profileDir);
+	const after = before.filter((verdict) => !sameSubject(verdict, subject));
+	if (after.length !== before.length) writeVerdicts(profileDir, after);
+}
+//#endregion
 //#region lib/types/market-settings.js
 /** Durable plugin-market synchronization preferences. */
 /** Provider ids with complete initialization and incremental implementations. */
@@ -256,6 +319,10 @@ function activeProfile() {
 	if (args[0] === "web") return "web";
 	const index = args.indexOf("--profile");
 	return index >= 0 && args[index + 1] !== void 0 ? args[index + 1] : "web";
+}
+/** Accept one `owner/repository`, the identity a marketplace row carries. */
+function rowIdentity(value) {
+	return typeof value === "string" && /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(value) ? value : void 0;
 }
 /** Accept one shell-free package spec supported by pnpm. */
 function packageSpec(value) {
@@ -489,7 +556,8 @@ function apply(ctx) {
 				const restart = ctx.get("appRestart") === void 0 ? "manual" : "service";
 				writeJson(res, 200, {
 					token,
-					restart
+					restart,
+					verdicts: readVerdicts(resolveProfileDir(activeProfile()))
 				});
 			}
 		});
@@ -521,18 +589,53 @@ function apply(ctx) {
 				try {
 					const dir = resolveProfileDir(activeProfile());
 					const before = readBundles(dir);
+					const dependenciesBefore = readDependencies(dir);
 					const result = await runPluginAction(request.action, spec, (next) => {
 						child = next;
 					});
 					const added = result.ok ? bundleDelta(before, readBundles(dir)).added : [];
+					const strayDependencies = result.ok && request.action === "install" && added.length === 0 ? bundleDelta(dependenciesBefore, readDependencies(dir)).added : [];
 					const failure = added.length === 0 ? null : await verifyLoadable(dir, loadSpecifiers(dir, added));
-					if (failure !== null) {
+					if (strayDependencies.length > 0) {
+						const undone = [];
+						for (const pkg of strayDependencies) if (!(await runPluginAction("uninstall", pkg, (next) => {
+							child = next;
+						})).ok) undone.push(`dsh plugin --profile ${activeProfile()} remove -w ${pkg}`);
+						result.ok = false;
+						result.notPlugin = true;
+						result.rolledBack = undone.length === 0;
+						recordVerdict(dir, {
+							name: strayDependencies[0],
+							...rowIdentity(request.fullName) === void 0 ? {} : { row: rowIdentity(request.fullName) },
+							spec,
+							kind: "not-plugin",
+							reason: `${strayDependencies.join(", ")} installed but declares no dsh.bundle.patch, so nothing was mounted`,
+							at: (/* @__PURE__ */ new Date()).toISOString()
+						});
+						result.error = [
+							`${spec} installed ${strayDependencies.join(", ")}, which is not a DSH plugin:`,
+							"it declares no dsh.bundle.patch, so the profile mounted nothing.",
+							...undone.length === 0 ? [] : [
+								"",
+								"Removing it failed too — run this before the next start:",
+								...undone
+							]
+						].join("\n");
+					} else if (failure !== null) {
 						const undone = [];
 						for (const pkg of added) if (!(await runPluginAction("uninstall", pkg, (next) => {
 							child = next;
 						})).ok) undone.push(`dsh plugin --profile ${activeProfile()} remove -w ${pkg}`);
 						result.ok = false;
 						result.rolledBack = undone.length === 0;
+						recordVerdict(dir, {
+							...added[0] === void 0 ? {} : { name: added[0] },
+							...rowIdentity(request.fullName) === void 0 ? {} : { row: rowIdentity(request.fullName) },
+							spec,
+							kind: "load",
+							reason: `${failure.specifier}: ${failure.detail.split("\n").slice(0, 6).join("\n")}`,
+							at: (/* @__PURE__ */ new Date()).toISOString()
+						});
 						result.error = [
 							`${failure.specifier} cannot be loaded by this harness:`,
 							failure.detail,
@@ -543,6 +646,10 @@ function apply(ctx) {
 							]
 						].join("\n");
 					} else if (result.ok) {
+						if (request.action === "install") clearVerdicts(dir, {
+							spec,
+							...rowIdentity(request.fullName) === void 0 ? {} : { row: rowIdentity(request.fullName) }
+						});
 						const live = await applyHotMount(ctx, before);
 						result.hotMounted = live.hotMounted;
 						if (live.note !== void 0) result.hotMountNote = live.note;
@@ -573,7 +680,14 @@ function apply(ctx) {
 					writeJson(res, 400, { error: "invalid compatibility request" });
 					return;
 				}
-				writeJson(res, 200, await checkCompatibility(spec));
+				const compatibility = await checkCompatibility(spec);
+				if (compatibility.mismatches.length > 0) recordVerdict(resolveProfileDir(activeProfile()), {
+					spec,
+					kind: "peer",
+					reason: compatibility.mismatches.map((peer) => `${peer.name}: needs ${peer.expected}, harness ships ${peer.actual}`).join("\n"),
+					at: (/* @__PURE__ */ new Date()).toISOString()
+				});
+				writeJson(res, 200, compatibility);
 			}
 		});
 		return () => {

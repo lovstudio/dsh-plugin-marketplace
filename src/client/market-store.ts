@@ -10,6 +10,7 @@ import type {
   MarketDetailInfo, MarketFilters, MarketOrder, MarketPluginSummary, MarketSort,
 } from './types.ts'
 import type { MarketSyncProgress } from './api.ts'
+import type { PluginVerdict } from './plugin-actions.ts'
 
 /** Rows per local catalog page or merged-list slice. */
 export const MARKET_PAGE_SIZE = 40
@@ -93,6 +94,8 @@ export interface MarketViewState {
   overlayOpen: boolean
   /** Installed plugin module names (from the Host inventory remote). */
   installed: readonly string[]
+  /** What this profile already found out about packages, for the row marks. */
+  verdicts: readonly PluginVerdict[]
   /** Whether the list projects only loaded rows present in the Host inventory. */
   installedOnly: boolean
   /** The latest install/uninstall operation, or null. */
@@ -143,6 +146,7 @@ export function createMarketViewState(): MarketViewState {
     detailStatus: 'idle',
     overlayOpen: false,
     installed: [],
+    verdicts: [],
     installedOnly: false,
     action: null,
     installWarning: null,

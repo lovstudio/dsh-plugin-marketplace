@@ -4,6 +4,7 @@
  * needs to decide or install is present, and no UI vocabulary leaks in.
  */
 
+import type { PluginVerdict } from './plugin-actions.ts'
 import type { MarketPluginSummary } from './types.ts'
 
 /**
@@ -40,6 +41,27 @@ export function installedName(
  */
 export function isInstalled(plugin: MarketPluginSummary, installed: readonly string[]): boolean {
   return installedName(plugin, installed) !== null
+}
+
+/**
+ * What this profile already found out about a row, if anything. Matching is on
+ * the repository the verdict came from, or the exact spec it used — never on
+ * the module name, because npm names are global while repository names are not:
+ * several unrelated rows are called `dsh-trading`, and only one of them is the
+ * package that was judged.
+ * @param plugin - the plugin row.
+ * @param verdicts - verdicts recorded by the Host.
+ * @returns the newest verdict about this row, or null.
+ */
+export function rowVerdict(
+  plugin: MarketPluginSummary,
+  verdicts: readonly PluginVerdict[],
+): PluginVerdict | null {
+  if (verdicts.length === 0) return null
+  const spec = installSpec(plugin)
+  const full = plugin.fullName.toLocaleLowerCase()
+  return verdicts.find(verdict => verdict.row?.toLocaleLowerCase() === full
+    || (spec !== null && verdict.spec === spec)) ?? null
 }
 
 /**

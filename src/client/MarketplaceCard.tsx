@@ -16,8 +16,9 @@ import { ActionBanner, runningLabel } from './action-banner.tsx'
 import { IconStarFill16, IconStarOutline16 } from './icons.tsx'
 import { useElapsedSeconds } from './use-elapsed.ts'
 import { useMarketCopyFeedback } from './copy-feedback.ts'
-import { installSpec, isInstalled, pluginAgentMarkdown, uninstallSpec } from './agent-copy.ts'
+import { installSpec, isInstalled, pluginAgentMarkdown, rowVerdict, uninstallSpec } from './agent-copy.ts'
 import type { MarketInstallAction } from './market-store.ts'
+import type { PluginVerdict } from './plugin-actions.ts'
 import type { MarketPluginSummary } from './types.ts'
 import css from './MarketplaceCard.module.css'
 
@@ -27,6 +28,8 @@ export interface MarketplaceCardProps {
   plugin: MarketPluginSummary
   /** Installed module names (badge + uninstall action). */
   installed: readonly string[]
+  /** What this profile already found out about packages. */
+  verdicts: readonly PluginVerdict[]
   /** Description-locale preference for agent copy. */
   locale: 'zh' | 'en'
   /** Latest package operation, or null. */
@@ -62,13 +65,14 @@ function badgeLabel(t: MarketplaceCardProps['t'], plugin: MarketPluginSummary): 
 
 /** Render one marketplace card. */
 export function MarketplaceCard({
-  plugin, installed, locale, action, restartMode, canStar, starred, starBusy, onToggleStar,
+  plugin, installed, verdicts, locale, action, restartMode, canStar, starred, starBusy, onToggleStar,
   onInstall, onUninstall, onRestart, onDismissAction, onDetails, onOpenRepository, t,
 }: MarketplaceCardProps): ReactNode {
   const [menuOpen, setMenuOpen] = useState(false)
   const idCopy = useMarketCopyFeedback(plugin.fullName)
   const agentCopy = useMarketCopyFeedback(pluginAgentMarkdown(plugin, locale))
   const badge = badgeLabel(t, plugin)
+  const verdict = rowVerdict(plugin, verdicts)
   const installedFlag = isInstalled(plugin, installed)
   const spec = installedFlag ? uninstallSpec(plugin, installed) : installSpec(plugin)
   const ownAction = action !== null && action.fullName === plugin.fullName ? action : null
@@ -100,6 +104,16 @@ export function MarketplaceCard({
           )}
           {badge === null ? null : <span className={css.badge}>{badge}</span>}
           {installedFlag ? <span className={css.installed}>{t('installedBadge')}</span> : null}
+          {verdict === null ? null : (
+            <span
+              className={css.verdict}
+              title={`${verdict.reason}\n\n${new Date(verdict.at).toLocaleString()}`}
+            >
+              {verdict.kind === 'not-plugin'
+                ? t('notPluginBadge')
+                : verdict.kind === 'peer' ? t('peerBadge') : t('unloadableBadge')}
+            </span>
+          )}
         </span>
         <span className={css.metaRow}>
           <span className={css.owner}>{plugin.fullName}</span>

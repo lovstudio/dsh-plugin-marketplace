@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.14 - 2026-09-05
+
+- Stop installing a stranger's package. A repository's install was traded for the npm package of the same name on the strength of that name existing, but npm names are global and first-come: `github:maddogfinance/dsh-trading` installed `dsh-trading@0.0.1`, which belongs to another repository entirely and is not a plugin. The published package is now used only when it names this repository as its source and declares a DSH bundle; otherwise the repository spec installs.
+- Undo an install that registered no plugin. A package with no `dsh.bundle.patch` leaves the profile with an inert dependency and no plugin, which used to be reported as success with a restart prompt — and a restart then changed nothing at all.
+- Mark rows this profile has already judged. A repository that could not be loaded, installed no plugin, or declares stale harness ranges carries a badge on its card, with the recorded reason in its tooltip. Verdicts live in the profile, so they survive restarts, and clear as soon as the same row installs and loads.
+
 ## 0.1.13 - 2026-09-05
 
 - Verify that a freshly installed plugin can actually be loaded, and undo the install when it cannot. A plugin built against an older harness installs cleanly and then fails at ESM link time, which aborts the entire plugin tree: the next `dsh web` dies before serving anything, taking away the very page that could remove it. The check imports the plugin's entry in a throwaway child process — the same link step, tens of milliseconds — and reports the linker's own error with a copy action. If undoing the install also fails, the banner carries the exact `dsh plugin remove` command to run before the next start.

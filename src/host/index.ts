@@ -60,6 +60,27 @@ function repositoryPath(fullName: string): string {
   return fullName
 }
 
+/** The `owner/repository` a published manifest's repository field points at. */
+function publishedRepository(published: { repository?: unknown }): string | null {
+  const field = published.repository
+  const url = typeof field === 'string' ? field : (field as { url?: unknown } | null)?.url
+  if (typeof url !== 'string') return null
+  const match = /github\.com[/:]([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?(?:[#/?].*)?$/.exec(url)
+  return match === null ? null : `${match[1]!}/${match[2]!}`
+}
+
+/** Whether the published package names this repository as its source. */
+function publishedFromRepository(published: { repository?: unknown }, fullName: string): boolean {
+  const declared = publishedRepository(published)
+  return declared !== null && declared.toLocaleLowerCase() === fullName.toLocaleLowerCase()
+}
+
+/** Whether the published package mounts itself as a DSH bundle. */
+function declaresBundle(published: { dsh?: unknown }): boolean {
+  const patch = (published.dsh as { bundle?: { patch?: unknown } } | null)?.bundle?.patch
+  return typeof patch === 'string' && patch.length > 0
+}
+
 /** Validate one GitHub search row at the external JSON boundary. */
 function repositoryOf(raw: unknown): GitHubMarketRepository {
   const row = raw as GitHubRepositoryWire | null
@@ -174,13 +195,25 @@ export class PluginMarketGitHubGateway extends TypertRemoteService {
     }
     if (typeof manifest.name !== 'string' || manifest.name.length === 0) return { npmPublished: false }
     const version = typeof manifest.version === 'string' ? manifest.version : undefined
-    const registry = await fetch(`https://registry.npmjs.org/${manifest.name.split('/').map(encodeURIComponent).join('/')}`, {
-      headers: { accept: 'application/vnd.npm.install-v1+json' },
+    // A name that merely exists on npm is not this repository's package: npm
+    // names are global and first-come. Install the published package only when
+    // it points back at this repository and declares a DSH bundle; anything
+    // else installs from the repository itself.
+    const registry = await fetch(`https://registry.npmjs.org/${manifest.name.split('/').map(encodeURIComponent).join('/')}/latest`, {
+      headers: { accept: 'application/json' },
     })
+    let published: { repository?: unknown; dsh?: unknown } | null = null
+    if (registry.ok) {
+      try {
+        published = JSON.parse(await registry.text()) as { repository?: unknown; dsh?: unknown }
+      } catch {
+        published = null
+      }
+    }
     return {
       pkgName: manifest.name,
       ...version === undefined ? {} : { pkgVersion: version },
-      npmPublished: registry.ok,
+      npmPublished: published !== null && publishedFromRepository(published, path) && declaresBundle(published),
     }
   }
 

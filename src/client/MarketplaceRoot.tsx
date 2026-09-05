@@ -553,6 +553,7 @@ export function MarketplaceRoot({ controller, useView, locale, t }: MarketplaceR
             key={plugin.fullName}
             plugin={plugin}
             installed={view.installed}
+            verdicts={view.verdicts}
             locale={locale}
             action={view.action}
             restartMode={view.restartMode}

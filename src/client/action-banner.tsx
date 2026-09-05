@@ -25,6 +25,8 @@ function errorCopyText(action: MarketInstallAction): string {
     ? 'Restart'
     : action.message === 'load-failed' || action.message === 'load-failed-stuck'
       ? 'Load'
+      : action.message === 'not-plugin' || action.message === 'not-plugin-stuck'
+        ? 'Install (no plugin registered)'
       : action.kind === 'install' ? 'Install' : 'Uninstall'
   return [
     `${what} failed: ${action.fullName}`,
@@ -69,7 +71,11 @@ export function ActionBanner({
         ? t('restartFailed')
         : action.message === 'load-failed'
           ? t('loadFailed')
-          : action.message === 'load-failed-stuck' ? t('loadFailedStuck') : t('actionFailed')
+          : action.message === 'load-failed-stuck'
+            ? t('loadFailedStuck')
+            : action.message === 'not-plugin'
+              ? t('notPlugin')
+              : action.message === 'not-plugin-stuck' ? t('notPluginStuck') : t('actionFailed')
   return (
     <div className={css.actionBanner} data-tone={success ? 'ok' : 'error'} role="status">
       <span className={css.actionText}>{text}</span>
