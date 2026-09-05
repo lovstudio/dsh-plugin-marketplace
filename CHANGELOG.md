@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.12 - 2026-09-05
+
+- Keep the search field and the result counts in place while the catalog scrolls. Both surfaces the marketplace mounts on — the overlay and the Settings plugins tab — pin the same two rows, so a search or a filter is always one click away in a 13k-row list.
+
 ## 0.1.11 - 2026-09-05
 
 - Hot-mount plugins whose bundle patch carries a `!!js` expression, such as `dsh-better-sidebar`. Those values are parsed in the launcher's own entry-list dialect and handed to the Loader untouched, which evaluates them the same way it does at boot — 0.1.10 rejected the whole package instead and asked for a restart.

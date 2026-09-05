@@ -12,6 +12,20 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  /*
+   * The search row and the counts below it stay put while the catalog scrolls.
+   * `--dsh-market-sticky-inset` is however much the surrounding surface pads
+   * above this row: the toolbar absorbs it as padding so its background reaches
+   * the top of the scroll port, otherwise cards surface in that strip on their
+   * way past. The bottom padding covers the column gap for the same reason, and
+   * the matching negative margin keeps the resting layout unchanged.
+   */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: var(--dsh-market-sticky-inset, 0px) 0 8px;
+  margin-bottom: -8px;
+  background: var(--dsh-market-surface, var(--dsw-alias-bg-layer-1));
 }
 
 .toolbarControls {
@@ -355,6 +369,13 @@
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
+  /* Second tier of the sticky header: 32px of toolbar plus its 8px cover. */
+  position: sticky;
+  top: calc(var(--dsh-market-sticky-inset, 0px) + 40px);
+  z-index: 1;
+  padding-bottom: 8px;
+  margin-bottom: -8px;
+  background: var(--dsh-market-surface, var(--dsw-alias-bg-layer-1));
 }
 
 .metaInfo {

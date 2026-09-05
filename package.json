@@ -1,7 +1,7 @@
 {
   "name": "@lovstudio/dsh-plugin-marketplace",
   "description": "Local-first DeepSeek Harness plugin marketplace with GitHub and dshfind providers",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "type": "module",
   "main": "index.js",
   "types": "lib/index.d.ts",

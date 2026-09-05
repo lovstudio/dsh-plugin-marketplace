@@ -125,8 +125,12 @@
 .body {
   flex: 1;
   min-height: 0;
-  padding: 14px 16px 20px;
+  /* The top padding belongs to the marketplace's sticky header instead, so it
+     paints over that strip rather than letting cards scroll through it. */
+  padding: 0 16px 20px;
   box-sizing: border-box;
+  --dsh-market-sticky-inset: 14px;
+  --dsh-market-surface: var(--dsw-alias-bg-overlay);
   /* Elevated surface: rebind the scrollbar indirection to the l2 pair. */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
