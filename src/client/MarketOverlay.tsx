@@ -12,6 +12,9 @@ import type { MarketSyncProgress } from './api.ts'
 import { MarketplaceRoot } from './MarketplaceRoot.tsx'
 import css from './MarketOverlay.module.css'
 
+/** This build's package version, substituted by the bundler. */
+declare const __MARKET_VERSION__: string
+
 /** Full component props of the shell-overlay marketplace. */
 export type MarketOverlayProps =
   PropsRuntime<'shell.overlay'>
@@ -83,6 +86,7 @@ export function MarketOverlay(props: MarketOverlayProps): ReactNode {
         <header className={css.header}>
           <div className={css.heading}>
             <span className={css.title}>{props.t('overlayTitle')}</span>
+            <span className={css.version} title={props.t('versionHint')}>{`v${__MARKET_VERSION__}`}</span>
             <button
               type="button"
               className={css.refresh}

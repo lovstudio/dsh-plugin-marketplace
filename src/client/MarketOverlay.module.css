@@ -51,6 +51,17 @@
   line-height: 22px;
 }
 
+/* The build's own version, kept quiet: it matters when reporting a problem,
+   not while browsing. */
+.version {
+  flex: none;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+
 .refresh {
   display: inline-flex;
   min-width: 0;

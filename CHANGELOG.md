@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.17 - 2026-09-05
+
+- Show which build is running: the overlay header carries the marketplace version next to its title, frozen into the browser bundle at build time so it always names the code actually loaded.
+
 ## 0.1.16 - 2026-09-05
 
 - Offer to allow the install scripts pnpm refused, instead of handing over its error. A git-hosted plugin whose dependency builds on install fails with `ERR_PNPM_IGNORED_BUILDS` and nothing installed; the banner now names the exact keys pnpm reported and runs the install again once **允许并重试** is clicked. Only those keys are written, and only on that click — running a stranger's build script stays the user's decision.

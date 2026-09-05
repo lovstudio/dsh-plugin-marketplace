@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, resolve } from 'node:path'
 import { transform } from 'lightningcss'
@@ -5,6 +6,9 @@ import MagicString from 'magic-string'
 import { defineConfig, type UserConfig } from 'tsdown'
 
 const PACKAGE_NAME = '@lovstudio/dsh-plugin-marketplace'
+
+/** The version the browser half reports, frozen into the bundle it ships in. */
+const PACKAGE_VERSION = (JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }).version
 const CSS_PREFIX = '\0dsh-css:'
 const CSS_SUFFIX = '.mjs'
 
@@ -120,6 +124,7 @@ export default defineConfig([
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
       'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
       'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
+      __MARKET_VERSION__: JSON.stringify(PACKAGE_VERSION),
     },
     plugins: [cssModulesPlugin, normalizedGeneratedWhitespace],
     outputOptions: {
