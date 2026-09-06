@@ -575,6 +575,7 @@ async function crawlGithub(
   report?: MarketSyncReporter,
 ): Promise<GitHubSyncCheckpoint> {
   let checkpoint = initial
+  let retries = 0
   while (checkpoint.pending.length > 0) {
     const [task, ...rest] = checkpoint.pending
     if (task === undefined) throw new Error('GitHub synchronization lost its next request')
@@ -589,12 +590,31 @@ async function crawlGithub(
       })
       await wait(delay)
     }
-    const result = await search({
-      pushedFrom: new Date(task.from).toISOString(),
-      pushedTo: new Date(task.to).toISOString(),
-      page: task.page,
-      perPage: GITHUB_PAGE_SIZE,
-    })
+    let result: GitHubMarketSearchPage
+    try {
+      result = await search({
+        pushedFrom: new Date(task.from).toISOString(),
+        pushedTo: new Date(task.to).toISOString(),
+        page: task.page,
+        perPage: GITHUB_PAGE_SIZE,
+      })
+    } catch (error: unknown) {
+      const failure = error as { code?: unknown; details?: { retryAt?: unknown } } | null
+      const retryAt = failure?.details?.retryAt
+      if (failure?.code !== 'plugin-market/rate-limited'
+        || typeof retryAt !== 'number' || !Number.isFinite(retryAt)) throw error
+      const next = {
+        ...checkpoint,
+        blockedUntil: clock() + Math.max(1_000, retryAt - clock()) * 2 ** retries,
+      }
+      // Keep the same page and its cooldown durable, including when retries are exhausted.
+      await persist(next)
+      checkpoint = next
+      if (retries >= 3) throw error
+      retries += 1
+      continue
+    }
+    retries = 0
     if (result.incomplete) throw new Error('GitHub repository search returned incomplete results')
     const requests = checkpoint.requests + 1
     const blockedUntil = result.rateLimitRemaining === 0 ? result.rateLimitResetAt + 1_000 : 0

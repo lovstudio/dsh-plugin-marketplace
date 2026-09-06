@@ -76,13 +76,16 @@ export interface CredentialRemote {
     ok: boolean
     value?: Record<string, { configured?: boolean; writable?: boolean; suffix?: string } | undefined>
   }>
-  /** Resolves when the Host stored the value; rejects when it refused. */
-  set(ref: string, value: string): Promise<unknown>
+  /** Remote failures resolve with `ok: false`; transport failures may reject. */
+  set(ref: string, value: string): Promise<{ ok: boolean }>
 }
 type MarketCredentialProbe = (token?: string) => Promise<{ login: string; canStar: boolean }>
 
 /** Owns the marketplace card's drafts and revision-fenced settings writes. */
 export class MarketSettingsCardController {
+  private readonly scope: SettingsScope<MarketSettings>
+  private readonly credentials: CredentialRemote
+  private readonly probeCredential: MarketCredentialProbe
   private readonly store: SnapshotStore<MarketSettingsCardState>
   private readonly unsubscribe: () => void
   private providerDraft: Draft<MarketProviderId> | undefined
@@ -93,14 +96,18 @@ export class MarketSettingsCardController {
   private githubTokenConfigured = false
   private githubTokenWritable = true
   private githubTokenSuffix: string | undefined
+  private githubTokenTestRevision = 0
   private githubTokenTest: { status: 'idle' | 'testing' | 'success' | 'error'; detail?: string; canStar?: boolean } = { status: 'idle' }
 
   /** @param scope - Host-backed `ui-plugin-market` settings scope. */
   constructor(
-    private readonly scope: SettingsScope<MarketSettings>,
-    private readonly credentials: CredentialRemote,
-    private readonly probeCredential: MarketCredentialProbe,
+    scope: SettingsScope<MarketSettings>,
+    credentials: CredentialRemote,
+    probeCredential: MarketCredentialProbe,
   ) {
+    this.scope = scope
+    this.credentials = credentials
+    this.probeCredential = probeCredential
     this.store = createSnapshotStore(this.projection())
     this.unsubscribe = scope.subscribe(() => { this.publish() })
     void this.readGithubToken()
@@ -121,6 +128,7 @@ export class MarketSettingsCardController {
       selectProvider: (provider) => { this.stageProvider({ kind: 'set', value: provider }) },
       setSyncOnStartup: (enabled) => { this.stageSync({ kind: 'set', value: enabled }) },
       setGithubToken: (value) => {
+        this.githubTokenTestRevision += 1
         this.githubTokenDraft = value
         this.githubTokenTest = { status: 'idle' }
         this.failed = false
@@ -154,6 +162,8 @@ export class MarketSettingsCardController {
     this.providerDraft = undefined
     this.syncDraft = undefined
     this.githubTokenDraft = ''
+    this.githubTokenTestRevision += 1
+    this.githubTokenTest = { status: 'idle' }
     this.failed = false
     this.publish()
   }
@@ -167,13 +177,16 @@ export class MarketSettingsCardController {
     this.publish()
     let landed = true
     if (token.length > 0) {
+      this.githubTokenTestRevision += 1
       try {
-        await this.credentials.set('GITHUB_TOKEN', token)
+        const response = await this.credentials.set('GITHUB_TOKEN', token)
+        landed = response.ok
       } catch (_credentialWriteFailure) {
         landed = false
       }
-      await this.readGithubToken()
-      landed = this.githubTokenConfigured && landed
+      const refreshed = await this.readGithubToken()
+      landed = refreshed && this.githubTokenConfigured && landed
+      this.githubTokenTest = { status: 'idle' }
     }
     for (const write of plan) {
       try {
@@ -314,13 +327,16 @@ export class MarketSettingsCardController {
   private async testGithubToken(): Promise<void> {
     if (this.githubTokenTest.status === 'testing') return
     const token = this.githubTokenDraft.trim()
+    const revision = ++this.githubTokenTestRevision
     if (token.length === 0 && !this.githubTokenConfigured) return
     this.githubTokenTest = { status: 'testing' }
     this.publish()
     try {
       const result = await this.probeCredential(token.length === 0 ? undefined : token)
+      if (revision !== this.githubTokenTestRevision) return
       this.githubTokenTest = { status: 'success', detail: result.login, canStar: result.canStar }
     } catch (error: unknown) {
+      if (revision !== this.githubTokenTestRevision) return
       this.githubTokenTest = {
         status: 'error',
         detail: error instanceof Error ? error.message : String(error),
@@ -329,22 +345,24 @@ export class MarketSettingsCardController {
     this.publish()
   }
 
-  private async readGithubToken(): Promise<void> {
+  private async readGithubToken(): Promise<boolean> {
     try {
       const response = await this.credentials.describe(['GITHUB_TOKEN'])
-      if (!response.ok) return
+      if (!response.ok) return false
       const view = response.value?.GITHUB_TOKEN
       const configured = view?.configured ?? false
       const writable = view?.writable ?? true
       const suffix = view?.suffix
       if (configured === this.githubTokenConfigured && writable === this.githubTokenWritable
-        && suffix === this.githubTokenSuffix) return
+        && suffix === this.githubTokenSuffix) return true
       this.githubTokenConfigured = configured
       this.githubTokenWritable = writable
       this.githubTokenSuffix = suffix
       this.publish()
+      return true
     } catch (_credentialReadFailure) {
       // Settings remain usable; the Host authoritatively accepts or refuses the next write.
+      return false
     }
   }
 }

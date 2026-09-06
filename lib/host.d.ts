@@ -3,6 +3,13 @@ import type { Context } from '@deepseek-ai/cordis';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { GitHubMarketCredentialProbeRequest, GitHubMarketCredentialProbeResult, GitHubMarketPackageRequest, GitHubMarketPackageResult, GitHubMarketSearchPage, GitHubMarketSearchRequest, GitHubMarketStarRequest, GitHubMarketStarredResult } from './types.ts';
 export type * from './types.ts';
+declare module '@deepseek-ai/dsh-typert-protocol' {
+    interface RemoteErrorDetailsMap {
+        'plugin-market/rate-limited': {
+            readonly retryAt: number;
+        };
+    }
+}
 /** Credential reference managed by the marketplace settings card. */
 export declare const GITHUB_MARKET_TOKEN_REF: import("@deepseek-ai/dsh-credentials").CredentialRef;
 /** Remote gateway that keeps the GitHub credential out of the browser. */

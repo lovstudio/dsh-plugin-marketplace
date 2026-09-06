@@ -1,0 +1,1 @@
+{"version":3,"file":"typert.remote-client.d.ts","names":["listStarred","probeCredential","resolvePackage","search","setStar"],"sources":["../src/host/index.ts"],"sourcesContent":[null],"mappings":";;;;;;;;;IAmNQA,W;IAnFAC,e;IAwCAC,c;IA0FAC,M;IAvBAC,O;;;IAxBAJ,gC;IAnFAC,oC;IAwCAC,mC;IA0FAC,2B;IAvBAC,4B","ignoreList":[]}

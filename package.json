@@ -1,7 +1,7 @@
 {
   "name": "@lovstudio/dsh-plugin-marketplace",
   "description": "Local-first DeepSeek Harness plugin marketplace with GitHub and dshfind providers",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "type": "module",
   "main": "index.js",
   "types": "lib/index.d.ts",
@@ -49,6 +49,7 @@
     "lib/typert.host.d.ts",
     "lib/typert.remote-client.js",
     "lib/typert.remote-client.d.ts",
+    "lib/typert.remote-client.d.ts.map",
     "cordis.patch.yml"
   ],
   "license": "MIT",
@@ -69,6 +70,7 @@
     "access": "public"
   },
   "scripts": {
+    "test": "node --test tests/*.test.ts",
     "build": "tsc -p tsconfig.host.json && tsc -p tsconfig.host.json --declaration --emitDeclarationOnly --outDir lib/types && cp lib/types/index.d.ts lib/index.d.ts && cp lib/types/invariant.d.ts lib/invariant.d.ts && cp lib/types/market-settings.d.ts lib/market-settings.d.ts && cp lib/types/host/index.d.ts lib/host.d.ts && cp lib/types/host/types.d.ts lib/types.d.ts && tsdown",
     "watch": "tsdown --watch",
     "prepack": "pnpm run build"
@@ -107,6 +109,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-client-store": "0.1.2-rc.1",
     "@deepseek-ai/dsh-credentials": "0.1.2-alpha.2",
     "@deepseek-ai/dsh-invariants": "0.1.2-alpha.2",
     "@deepseek-ai/dsh-settings": "0.1.2-alpha.2",

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.18 - 2026-09-06
+
+- Check the credential Remote result before accepting a token save. Refused writes and failed readback retain the draft and show a save error even when an older token is configured. Clear draft test results on save/discard, and explain that testing does not save a token.
+- Resume GitHub catalog synchronization after confirmed rate limits. Persist the current page and cooldown, show the existing waiting state, and retry with bounded backoff. Permission failures retain GitHub's diagnostic instead of being mislabeled solely because a reset header exists.
+
 ## 0.1.17 - 2026-09-05
 
 - Show which build is running: the overlay header carries the marketplace version next to its title, frozen into the browser bundle at build time so it always names the code actually loaded.

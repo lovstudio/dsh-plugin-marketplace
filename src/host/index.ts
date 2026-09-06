@@ -2,7 +2,8 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { githubRetryAt } from './rate-limit.ts'
 import { declaresBundle, publishedFromRepository } from '../npm-identity.ts'
 import type {
   GitHubMarketCredentialProbeRequest, GitHubMarketCredentialProbeResult,
@@ -12,6 +13,12 @@ import type {
 } from './types.ts'
 
 export type * from './types.ts'
+
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface RemoteErrorDetailsMap {
+    'plugin-market/rate-limited': { readonly retryAt: number }
+  }
+}
 
 /** Credential reference managed by the marketplace settings card. */
 export const GITHUB_MARKET_TOKEN_REF = credentialRef('GITHUB_TOKEN')
@@ -259,6 +266,7 @@ export class PluginMarketGitHubGateway extends TypertRemoteService {
       per_page: String(request.perPage),
     })
     const response = await fetch(`https://api.github.com/search/repositories?${params.toString()}`, {
+      signal: AbortSignal.timeout(30_000),
       headers: {
         accept: 'application/vnd.github+json',
         authorization: `Bearer ${token}`,
@@ -266,15 +274,18 @@ export class PluginMarketGitHubGateway extends TypertRemoteService {
       },
     })
     if (!response.ok) {
-      const retryAfter = response.headers.get('retry-after')
-      const reset = response.headers.get('x-ratelimit-reset')
-      const suffix = retryAfter !== null
-        ? `; retry after ${retryAfter}s`
-        : reset !== null ? `; rate limit resets at ${reset}` : ''
-      throw new Error(`GitHub repository search failed: HTTP ${String(response.status)}${suffix}`)
+      const body = await response.json().catch(() => null) as { message?: unknown } | null
+      const message = typeof body?.message === 'string' ? body.message.slice(0, 500) : ''
+      const retryAt = githubRetryAt(response.status, response.headers, message, Date.now())
+      if (retryAt !== undefined) {
+        throw new RemoteError('plugin-market/rate-limited',
+          `GitHub search rate limit reached; retry after ${new Date(retryAt).toISOString()}`,
+          { retryAt })
+      }
+      throw new Error(`GitHub repository search failed: HTTP ${String(response.status)}${message ? `; ${message}` : ''}`)
     }
-    const remaining = Number(response.headers.get('x-ratelimit-remaining'))
-    const resetSeconds = Number(response.headers.get('x-ratelimit-reset'))
+    const remaining = Number(response.headers.get('x-ratelimit-remaining') ?? NaN)
+    const resetSeconds = Number(response.headers.get('x-ratelimit-reset') ?? NaN)
     if (!Number.isSafeInteger(remaining) || remaining < 0
       || !Number.isSafeInteger(resetSeconds) || resetSeconds < 0) {
       throw new Error('GitHub repository search omitted valid rate-limit headers')

@@ -123,7 +123,7 @@ function mountMarketplace(ctx: ClientContext, config?: MarketConfig): void {
     github: createGithubMarketApi(async (request) => {
       const response = await ctx.remote.pluginMarketGithub.search(request)
       if (!response.ok) {
-        throw new Error(`pluginMarketGithub.search failed: ${response.error.code}: ${response.error.message}`)
+        throw response.error
       }
       return response.value
     }),
